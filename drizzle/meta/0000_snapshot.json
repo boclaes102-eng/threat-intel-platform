@@ -1,0 +1,10 @@
+{
+  "id": "0000",
+  "prevId": "",
+  "version": "6",
+  "dialect": "postgresql",
+  "tables": {},
+  "enums": {},
+  "schemas": {},
+  "_meta": { "tables": {}, "columns": {} }
+}

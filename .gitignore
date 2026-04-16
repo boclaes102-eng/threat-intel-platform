@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.test
+coverage/
+*.tsbuildinfo
+
+# Drizzle generated migrations (commit these in a real project)
+# drizzle/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
