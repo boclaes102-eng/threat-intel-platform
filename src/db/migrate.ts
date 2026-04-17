@@ -19,6 +19,7 @@ async function runMigrations() {
   console.log('Migrations complete.');
 
   await client.end({ timeout: 5 });
+  process.exit(0);
 }
 
 runMigrations().catch((err) => {
