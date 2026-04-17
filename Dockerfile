@@ -20,6 +20,7 @@ ENV NODE_ENV=production
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY package.json ./
 COPY drizzle/ ./drizzle/
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
