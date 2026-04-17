@@ -5,7 +5,5 @@ dockerBuildTarget = "api"
 
 [deploy]
 startCommand = "node dist/db/migrate.js && node dist/index.js"
-healthcheckPath = "/health"
-healthcheckTimeout = 60
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
