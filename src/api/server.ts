@@ -18,6 +18,7 @@ import vulnerabilityRoutes from './routes/vulnerabilities';
 import iocRoutes from './routes/ioc';
 
 export async function buildServer() {
+  console.log('[server] buildServer() called');
   const fastify = Fastify({
     logger: false,
     trustProxy: true,
@@ -25,6 +26,7 @@ export async function buildServer() {
     genReqId: (req) => (req.headers['x-request-id'] as string) || randomUUID(),
   });
 
+  console.log('[server] registering swagger');
   // ── OpenAPI / Swagger ────────────────────────────────────────────────────
   await fastify.register(fastifySwagger, {
     openapi: {
@@ -63,6 +65,7 @@ export async function buildServer() {
     exposedHeaders: ['X-Request-ID'],
   });
 
+  console.log('[server] registering rate-limit');
   // ── Rate limiting ─────────────────────────────────────────────────────────
   await fastify.register(fastifyRateLimit, {
     max: 120,
@@ -72,6 +75,7 @@ export async function buildServer() {
     errorResponseBuilder: () => ({ error: 'Too many requests', message: 'Rate limit exceeded. Please slow down.' }),
   });
 
+  console.log('[server] registering auth plugin');
   // ── Auth plugin (JWT + API key) ───────────────────────────────────────────
   await fastify.register(authPlugin);
 
@@ -95,6 +99,7 @@ export async function buildServer() {
     done();
   });
 
+  console.log('[server] registering routes');
   // ── Routes ────────────────────────────────────────────────────────────────
   const prefix = '/api/v1';
   await fastify.register(healthRoutes);
@@ -110,5 +115,6 @@ export async function buildServer() {
     reply.status(500).send({ error: 'Internal server error' });
   });
 
+  console.log('[server] buildServer() done');
   return fastify;
 }
