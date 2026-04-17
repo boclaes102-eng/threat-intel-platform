@@ -9,7 +9,7 @@ async function runMigrations() {
   if (!url) throw new Error('DATABASE_URL is required');
 
   // drizzle folder is copied into dist/ during build so it ships with the compiled output
-  const migrationsFolder = path.join(__dirname, '../drizzle');
+  const migrationsFolder = path.join(__dirname, '../../drizzle');
 
   const client = postgres(url, { max: 1 });
   const db = drizzle(client);
