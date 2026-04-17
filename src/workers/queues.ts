@@ -1,7 +1,12 @@
 import { Queue } from 'bullmq';
+import Redis from 'ioredis';
 import { env } from '../lib/env';
 
-const connection = { url: env.REDIS_URL };
+const connection = new Redis(env.REDIS_URL, {
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: true,
+  lazyConnect: true,
+});
 
 export const cveFeedQueue = new Queue('cve-feed', { connection });
 export const iocScanQueue = new Queue('ioc-scan', { connection });
