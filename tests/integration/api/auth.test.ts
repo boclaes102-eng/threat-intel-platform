@@ -106,12 +106,12 @@ describe('GET /api/v1/auth/me', () => {
       url: '/api/v1/auth/register',
       payload: { email: 'me@example.com', password: 'password123' },
     });
-    const { token } = reg.json();
+    const { accessToken } = reg.json();
 
     const res = await server.inject({
       method: 'GET',
       url: '/api/v1/auth/me',
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${accessToken}` },
     });
 
     expect(res.statusCode).toBe(200);

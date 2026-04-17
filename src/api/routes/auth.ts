@@ -36,7 +36,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     {
       schema: {
         body: { type: 'object', required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string', minLength: 8 } } },
-        response: { 201: { type: 'object', properties: { accessToken: { type: 'string' }, refreshToken: { type: 'string' }, user: { type: 'object' } } } },
+        response: { 201: { type: 'object', properties: { accessToken: { type: 'string' }, refreshToken: { type: 'string' }, user: { type: 'object', additionalProperties: true } } } },
       },
     },
     async (request, reply) => {
