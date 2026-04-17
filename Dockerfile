@@ -11,6 +11,7 @@ COPY package*.json ./
 RUN npm ci
 COPY tsconfig*.json ./
 COPY src/ ./src/
+COPY drizzle/ ./drizzle/
 RUN npm run build
 
 # ── Stage 3: api runtime ──────────────────────────────────────────────────────
@@ -20,8 +21,7 @@ ENV NODE_ENV=production
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY package.json ./
-COPY drizzle/ ./drizzle/
+COPY --from=build /app/drizzle ./drizzle
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
