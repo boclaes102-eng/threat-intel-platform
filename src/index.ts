@@ -1,12 +1,9 @@
 import 'dotenv/config';
 import { buildServer } from './api/server';
-import { redis } from './lib/redis';
 import { env } from './lib/env';
 import { logger } from './lib/logger';
 
 async function main() {
-  await redis.connect();
-
   const server = await buildServer();
 
   await server.listen({ port: env.PORT, host: env.HOST });

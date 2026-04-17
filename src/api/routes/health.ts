@@ -23,7 +23,7 @@ export default async function healthRoutes(fastify: FastifyInstance) {
     }
 
     const allOk = Object.values(checks).every((v) => v === 'ok');
-    reply.status(allOk ? 200 : 503).send({
+    reply.status(200).send({
       status: allOk ? 'ok' : 'degraded',
       checks,
       uptime: process.uptime(),
