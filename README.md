@@ -3,7 +3,7 @@
 [![CI](https://github.com/boclaes102-eng/threat-intel-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/boclaes102-eng/threat-intel-platform/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/boclaes102-eng/threat-intel-platform/branch/main/graph/badge.svg)](https://codecov.io/gh/boclaes102-eng/threat-intel-platform)
 
-A production-ready backend service that monitors registered assets for threats, ingests CVE feeds, and enriches IOC data from multiple sources. Designed to pair with [Online-Cyber-Dashboard](./Online-Cyber-dashboard) as a standalone backend service.
+A production-ready backend service that monitors registered assets for threats, ingests CVE feeds, and enriches IOC data from multiple sources. Designed to pair with [Online-Cyber-Dashboard](./Online-Cyber-dashboard) as a standalone backend service..
 
 ---
 
