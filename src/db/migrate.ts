@@ -18,7 +18,7 @@ async function runMigrations() {
   await migrate(db, { migrationsFolder });
   console.log('Migrations complete.');
 
-  await client.end();
+  await client.end({ timeout: 5 });
 }
 
 runMigrations().catch((err) => {
