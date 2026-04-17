@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildServer } from '../../../src/api/server';
 import { db } from '../../../src/db';
@@ -18,9 +18,7 @@ let userId: string;
 beforeAll(async () => {
   server = await buildServer();
   await server.ready();
-});
 
-beforeEach(async () => {
   const reg = await server.inject({
     method: 'POST',
     url: '/api/v1/auth/register',

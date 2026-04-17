@@ -7,11 +7,10 @@ import {
   vulnerabilities,
   iocRecords,
   feedSyncs,
-  users,
 } from '../src/db/schema';
 
-// Wipe all tables between tests to ensure isolation.
-// Order matters — FK constraints require deleting child rows first.
+// Wipe data tables between tests. Users are NOT deleted — each test file
+// registers its own user once in beforeAll and relies on it persisting.
 export async function cleanDatabase() {
   await db.delete(alerts);
   await db.delete(assetVulnerabilities);
@@ -19,7 +18,6 @@ export async function cleanDatabase() {
   await db.delete(vulnerabilities);
   await db.delete(iocRecords);
   await db.delete(feedSyncs);
-  await db.delete(users);
 }
 
 beforeEach(async () => {
