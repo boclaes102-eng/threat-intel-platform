@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { buildServer } from './api/server';
+import { redis } from './lib/redis';
 import { env } from './lib/env';
 import { logger } from './lib/logger';
 
