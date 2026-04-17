@@ -4,5 +4,6 @@ dockerfilePath = "Dockerfile"
 dockerBuildTarget = "worker"
 
 [deploy]
+startCommand = "node dist/worker.js"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
