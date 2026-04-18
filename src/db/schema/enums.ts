@@ -8,3 +8,8 @@ export const alertSeverityEnum = pgEnum('alert_severity', ['critical', 'high', '
 export const iocTypeEnum = pgEnum('ioc_type', ['ip', 'domain', 'url', 'hash']);
 export const iocVerdictEnum = pgEnum('ioc_verdict', ['malicious', 'suspicious', 'clean', 'unknown']);
 export const feedStatusEnum = pgEnum('feed_status', ['running', 'completed', 'failed']);
+export const reconToolEnum = pgEnum('recon_tool', [
+  'ip', 'domain', 'subdomains', 'ssl', 'headers', 'portscan',
+  'dns', 'reverseip', 'asn', 'whoishistory', 'certs', 'traceroute',
+  'url', 'email', 'ioc', 'shodan', 'tech', 'waf', 'cors',
+]);
