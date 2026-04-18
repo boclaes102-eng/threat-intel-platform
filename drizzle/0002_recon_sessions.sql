@@ -1,10 +1,13 @@
 -- Add recon_sessions table for storing dashboard recon results
 
-CREATE TYPE IF NOT EXISTS "recon_tool" AS ENUM (
-  'ip', 'domain', 'subdomains', 'ssl', 'headers', 'portscan',
-  'dns', 'reverseip', 'asn', 'whoishistory', 'certs', 'traceroute',
-  'url', 'email', 'ioc', 'shodan', 'tech', 'waf', 'cors'
-);
+DO $$ BEGIN
+  CREATE TYPE recon_tool AS ENUM (
+    'ip', 'domain', 'subdomains', 'ssl', 'headers', 'portscan',
+    'dns', 'reverseip', 'asn', 'whoishistory', 'certs', 'traceroute',
+    'url', 'email', 'ioc', 'shodan', 'tech', 'waf', 'cors'
+  );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
 
 CREATE TABLE IF NOT EXISTS "recon_sessions" (
   "id"         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
