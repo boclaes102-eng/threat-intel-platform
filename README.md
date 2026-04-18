@@ -3,7 +3,9 @@
 [![CI](https://github.com/boclaes102-eng/threat-intel-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/boclaes102-eng/threat-intel-platform/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/boclaes102-eng/threat-intel-platform/branch/main/graph/badge.svg)](https://codecov.io/gh/boclaes102-eng/threat-intel-platform)
 
-A production-ready backend service that monitors registered assets for threats, ingests CVE feeds, and enriches IOC data from multiple sources. Designed to pair with [Online-Cyber-Dashboard](./Online-Cyber-dashboard) as a standalone backend service..
+A production-ready backend service that monitors registered assets for threats, ingests CVE feeds, and enriches IOC data from multiple sources. Designed to pair with [Online-Cyber-Dashboard](./Online-Cyber-dashboard) as a standalone backend service.
+
+**Live API:** `https://threat-intel-platform-production-eb1b.up.railway.app`
 
 ---
 
@@ -17,6 +19,7 @@ A production-ready backend service that monitors registered assets for threats, 
 | Auth | JWT access tokens (15 min) + refresh tokens (30 days) + API keys |
 | Observability | Pino structured logs + Prometheus metrics + Grafana dashboards |
 | Containers | Docker multi-stage build + docker-compose |
+| Deployment | [Railway](https://railway.app) — API + Worker as separate services |
 | CI/CD | GitHub Actions: type check → security audit → tests → coverage → Docker build |
 | Testing | Vitest — unit tests + integration tests against real Postgres |
 | OpenAPI | Auto-generated Swagger UI at `/docs` |
@@ -30,35 +33,38 @@ A production-ready backend service that monitors registered assets for threats, 
 │  Online-Cyber-Dashboard (Next.js)    │
 │  X-API-Key: tip_abc123...            │  ← long-lived API key, no login flow
 └─────────────────┬────────────────────┘
-                  │
+                  │ HTTPS
                   ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Fastify API  :3001                        │
+│         Railway — API Service  (Fastify :3001)              │
 │  /auth  /assets  /alerts  /vulnerabilities  /ioc  /docs     │
+│  Runs DB migrations inline on startup                       │
 │  X-Request-ID on every request/response (log correlation)   │
+│  Rate limit: 120 req/min per IP via Redis                   │
 └─────┬────────────────────────────────────────┬──────────────┘
       │                                        │
       ▼                                        ▼
 ┌───────────────────┐                ┌──────────────────────┐
 │    PostgreSQL     │                │        Redis         │
 │  ─────────────── │                │  ────────────────    │
-│  users            │                │  IOC lookup cache    │
+│  users            │◄───────────────│  IOC lookup cache    │
 │  refresh_tokens   │                │  BullMQ job queues   │
 │  api_keys         │                │  Rate limit counters │
 │  assets           │                └──────────────────────┘
 │  vulnerabilities  │                          │
 │  asset_vulns      │           ┌──────────────┘
 │  ioc_records      │           ▼
-│  alerts           │  ┌─────────────────────────────────┐
-│  feed_syncs       │  │  BullMQ Workers                 │
-└───────────────────┘  │  ─────────────────────────────  │
-                       │  cve-feed   every 6h (+ retry)  │
-                       │  ioc-scan   every 1h            │
-                       │  asset-scan on-demand           │
-                       └─────────────────────────────────┘
+│  alerts           │  ┌──────────────────────────────────────┐
+│  feed_syncs       │  │  Railway — Worker Service (BullMQ)   │
+└───────────────────┘  │  ──────────────────────────────────  │
+                       │  cve-feed    every 6h  NVD API sync  │
+                       │  ioc-scan    every 1h  4-source fan  │
+                       │  asset-scan  on-demand CVE correlate │
+                       │  → creates alerts + sends email      │
+                       └──────────────────────────────────────┘
 
 ┌───────────────────────────────────────────────────────────┐
-│  Observability                                            │
+│  Observability (local docker-compose only)                │
 │  Prometheus :9090  ←  scrapes /metrics every 15s         │
 │  Grafana    :3002  ←  pre-built dashboard (8 panels)     │
 └───────────────────────────────────────────────────────────┘
@@ -235,7 +241,7 @@ The full interactive spec is at **`http://localhost:3001/docs`**.
 ### System
 | Endpoint | Description |
 |---|---|
-| `GET /health` | Postgres + Redis liveness — returns `{ status, checks, uptime }` |
+| `GET /health` | Always returns `{ status: "ok" }` — used by Railway and load balancers |
 | `GET /metrics` | Prometheus scrape endpoint |
 | `GET /docs` | Swagger UI — full interactive OpenAPI 3.0 spec |
 
@@ -312,6 +318,51 @@ npm run test:coverage      # all tests with v8 coverage report → coverage/
 Integration tests use `fastify.inject()` — no real HTTP port, no network — but hit a **live Postgres database** for real query behaviour. The test setup truncates all tables `beforeEach` for isolation.
 
 CI runs the full suite with Postgres and Redis as service containers, uploads results to Codecov, and fails on `npm audit --audit-level=high` findings.
+
+---
+
+## Railway Deployment
+
+The API and Worker run as two separate Railway services sharing the same Postgres and Redis add-ons.
+
+### Services
+
+| Service | Config file | Start command | Notes |
+|---|---|---|---|
+| API | `railway.toml` | `node dist/index.js` | Runs DB migrations inline on every deploy, then starts Fastify |
+| Worker | `railway.worker.toml` | `node dist/worker.js` | BullMQ consumers + recurring job scheduler |
+
+### How deploys work
+
+1. Railway builds the `api` Docker stage from `Dockerfile`
+2. On startup, `index.ts` runs all pending Drizzle migrations before binding the HTTP port — no separate migration step needed
+3. The `health` endpoint at `/health` returns 200 immediately once the server is up
+
+### Architecture on Railway
+
+```
+Railway project
+├── API service          (Dockerfile target: api)
+│   └── auto-runs migrations → starts Fastify on $PORT
+├── Worker service       (Dockerfile target: worker)
+│   └── consumes BullMQ queues, no HTTP port
+├── Postgres add-on      (shared between both services)
+└── Redis add-on         (shared between both services)
+```
+
+### Required environment variables on Railway
+
+Set these in each service's variable panel (use Railway's variable references where possible):
+
+```
+DATABASE_URL   = ${{Postgres.DATABASE_URL}}
+REDIS_URL      = ${{Redis.REDIS_URL}}
+JWT_SECRET     = <generate: openssl rand -base64 48>
+CORS_ORIGIN    = https://your-dashboard-domain.com
+NODE_ENV       = production
+```
+
+External API keys (`ABUSEIPDB_API_KEY`, `VT_API_KEY`, `NVD_API_KEY`, `OTX_API_KEY`) are optional — all features degrade gracefully without them.
 
 ---
 
