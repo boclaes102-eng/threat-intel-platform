@@ -3,9 +3,109 @@
 [![CI](https://github.com/boclaes102-eng/threat-intel-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/boclaes102-eng/threat-intel-platform/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/boclaes102-eng/threat-intel-platform/branch/main/graph/badge.svg)](https://codecov.io/gh/boclaes102-eng/threat-intel-platform)
 
-A production-ready backend service that monitors registered assets for threats, ingests CVE feeds, and enriches IOC data from multiple sources. Designed to pair with [Online-Cyber-Dashboard](./Online-Cyber-dashboard) as a standalone backend service.
+A production-ready backend service that is the shared data layer for a **three-platform security ecosystem**. It monitors registered assets for threats, ingests CVE feeds from NIST NVD, enriches IOC indicators from four sources in parallel, and stores recon sessions from the dashboard so the desktop attack tool can load them.
 
-**Live API:** `https://threat-intel-platform-production-eb1b.up.railway.app`
+**Live API:** `https://threat-intel-platform-production-eb1b.up.railway.app` &nbsp;·&nbsp; **Swagger UI:** `/docs`
+
+**Dashboard:** [Online-Cyber-Dashboard](https://github.com/boclaes102-eng/Online-Cyber-dashboard) &nbsp;·&nbsp; **Desktop App:** [CyberSuite Pro](https://github.com/boclaes102-eng/Cybersecurity-software)
+
+---
+
+## What Makes This Special
+
+This backend is not a thin CRUD API. It runs a multi-source enrichment pipeline, a scheduled CVE ingestion worker with exponential backoff and jitter, an asset-to-CVE correlation engine, and a recon session store that bridges a Next.js dashboard to a Python desktop tool. All of this ships as two separate Docker build targets (API + Worker) on a single Railway project, sharing one Postgres and one Redis instance.
+
+The schema is designed for correctness: credentials are never stored in plaintext, foreign keys have explicit `ON DELETE` actions everywhere, the IOC records table uses a TTL-based expiry so stale data is served while workers refresh it in the background, and the `asset_vulnerabilities` join table has a full remediation lifecycle (`open → acknowledged → remediated → false_positive`).
+
+---
+
+## Three-Platform Ecosystem
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                  CyberOps Dashboard  (Next.js · Vercel)              │
+│                                                                       │
+│  50+ recon / intel tools                                              │
+│  "Save to Workspace" → POST /api/v1/recon-sessions                   │
+│  Asset Monitor pages  → /api/v1/assets  alerts  vulnerabilities      │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │ HTTPS · X-API-Key
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│              Threat Intel Platform  (this repo · Railway)            │
+│                                                                       │
+│  Fastify API  (:3001)                                                 │
+│  ├─ /api/v1/recon-sessions   ← new: stores dashboard recon output    │
+│  ├─ /api/v1/assets           CRUD + immediate IOC scan queue job     │
+│  ├─ /api/v1/alerts           read / filter / mark-read               │
+│  ├─ /api/v1/vulnerabilities  NVD CVE data + asset correlation        │
+│  └─ /api/v1/ioc/:indicator   Redis cache → DB → live 4-source fan    │
+│                                                                       │
+│  BullMQ Workers                                                       │
+│  ├─ cve-feed    every 6h   NVD full sync with exponential backoff    │
+│  ├─ ioc-scan    every 1h   AbuseIPDB + VT + OTX per active asset     │
+│  └─ asset-scan  on-demand  CPE string correlation → alert creation   │
+│                                                                       │
+│  PostgreSQL 16  (10 tables, 3 migrations, relational integrity)       │
+│  Redis 7        (BullMQ queues + IOC cache + rate limit counters)    │
+│  Prometheus + Grafana  (8-panel observability dashboard)             │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │ X-API-Key (from config file)
+                                ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│              CyberSuite Pro Desktop App  (Python · Windows)          │
+│                                                                       │
+│  Recon page fetches /api/v1/recon-sessions                            │
+│  One click → sets active target → loads into attack tools            │
+│  Offline fallback: manual target entry when no internet              │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## What Makes This Backend Technically Interesting
+
+### IOC enrichment fan-out with Redis caching
+When an indicator (IP, domain, or hash) is looked up, the service checks Redis first (cache hit → instant), then the Postgres `ioc_records` table (recent result → serve stale, queue refresh), then fans out to AbuseIPDB, VirusTotal, and AlienVault OTX in parallel. Results are written back to both Redis and Postgres with a TTL. Expired records are served as a fallback while the background worker refreshes them — the API never blocks waiting for external calls.
+
+### NVD CVE sync with exponential backoff + jitter
+The CVE feed worker pages through the full NIST NVD API (100 CVEs per page, ~2,000 pages for a full sync). If NVD rate-limits mid-sync, the worker retries each page up to 4× with exponential backoff and randomised jitter — not a naive sleep loop. Each run is recorded in `feed_syncs` with duration, records processed, and any error message.
+
+### Asset-to-CVE correlation
+When a new asset is registered, the asset-scan worker runs a CPE string similarity check against all known CVE `affectedProducts` entries. Matches create entries in the `asset_vulnerabilities` join table and generate alerts for `critical` and `high` severity CVEs. No external call — purely database-side correlation.
+
+### Recon session store (new — added for desktop integration)
+The `recon_sessions` table stores the full JSON output of any dashboard tool run (IP lookup, subdomain enumeration, SSL inspection, etc.) alongside a lightweight `summary` object for quick display. The CyberSuite Pro desktop app reads these sessions via the same API key and lets the operator load any target into the attack toolchain with one click.
+
+### Request ID tracing
+Every request gets a `X-Request-ID` (accepted from the caller or minted as UUID v4). Every Pino log line includes `reqId`. Every response echoes the header back. A single dashboard request can be traced through the Next.js proxy log, the Fastify request log, the worker job log, and the email send log — all linked by the same ID.
+
+---
+
+## Database Schema
+
+Ten tables across three migrations:
+
+```
+users ──< refresh_tokens      (30-day tokens, SHA-256 hashed)
+  │   └─< api_keys            (server-to-server keys, SHA-256 hashed)
+  │
+  ├──< assets ──< asset_vulnerabilities >── vulnerabilities  (NVD data)
+  │      │
+  │      └──< alerts          (nullable FK — alert survives asset deletion)
+  │
+  └──< recon_sessions         (tool + target + summary + full results JSON)
+
+ioc_records                   (enriched threat intel per indicator, TTL-based)
+feed_syncs                    (job run history: duration, records, errors)
+```
+
+**Key design decisions:**
+- Passwords use bcrypt (12 rounds). Refresh tokens and API keys are stored as SHA-256 hashes — never recoverable if lost.
+- `ioc_records.expires_at` lets the API serve stale data instantly while background workers refresh asynchronously.
+- All foreign keys have explicit `ON DELETE` actions — CASCADE or SET NULL — nothing is silently orphaned.
+- Cursor-based pagination on all list endpoints — no offset drift on live data.
+- `recon_sessions` uses a `recon_tool` PostgreSQL enum (19 values) so the DB enforces valid tool names at the constraint level.
 
 ---
 
@@ -13,468 +113,192 @@ A production-ready backend service that monitors registered assets for threats, 
 
 | Layer | Technology |
 |---|---|
-| HTTP API | [Fastify](https://fastify.dev) + TypeScript |
-| Database | PostgreSQL 16 + [Drizzle ORM](https://orm.drizzle.team) (migrations) |
-| Cache / Queues | Redis 7 + [BullMQ](https://bullmq.io) |
-| Auth | JWT access tokens (15 min) + refresh tokens (30 days) + API keys |
-| Observability | Pino structured logs + Prometheus metrics + Grafana dashboards |
-| Containers | Docker multi-stage build + docker-compose |
-| Deployment | [Railway](https://railway.app) — API + Worker as separate services |
-| CI/CD | GitHub Actions: type check → security audit → tests → coverage → Docker build |
-| Testing | Vitest — unit tests + integration tests against real Postgres |
-| OpenAPI | Auto-generated Swagger UI at `/docs` |
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────┐
-│  Online-Cyber-Dashboard (Next.js)    │
-│  X-API-Key: tip_abc123...            │  ← long-lived API key, no login flow
-└─────────────────┬────────────────────┘
-                  │ HTTPS
-                  ▼
-┌─────────────────────────────────────────────────────────────┐
-│         Railway — API Service  (Fastify :3001)              │
-│  /auth  /assets  /alerts  /vulnerabilities  /ioc  /docs     │
-│  Runs DB migrations inline on startup                       │
-│  X-Request-ID on every request/response (log correlation)   │
-│  Rate limit: 120 req/min per IP via Redis                   │
-└─────┬────────────────────────────────────────┬──────────────┘
-      │                                        │
-      ▼                                        ▼
-┌───────────────────┐                ┌──────────────────────┐
-│    PostgreSQL     │                │        Redis         │
-│  ─────────────── │                │  ────────────────    │
-│  users            │◄───────────────│  IOC lookup cache    │
-│  refresh_tokens   │                │  BullMQ job queues   │
-│  api_keys         │                │  Rate limit counters │
-│  assets           │                └──────────────────────┘
-│  vulnerabilities  │                          │
-│  asset_vulns      │           ┌──────────────┘
-│  ioc_records      │           ▼
-│  alerts           │  ┌──────────────────────────────────────┐
-│  feed_syncs       │  │  Railway — Worker Service (BullMQ)   │
-└───────────────────┘  │  ──────────────────────────────────  │
-                       │  cve-feed    every 6h  NVD API sync  │
-                       │  ioc-scan    every 1h  4-source fan  │
-                       │  asset-scan  on-demand CVE correlate │
-                       │  → creates alerts + sends email      │
-                       └──────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────┐
-│  Observability (local docker-compose only)                │
-│  Prometheus :9090  ←  scrapes /metrics every 15s         │
-│  Grafana    :3002  ←  pre-built dashboard (8 panels)     │
-└───────────────────────────────────────────────────────────┘
-```
-
----
-
-## Database Schema
-
-Nine tables with full relational integrity across two migrations:
-
-```
-users ──< refresh_tokens   (30-day refresh tokens, hashed in DB)
-  │   └─< api_keys         (server-to-server keys, SHA-256 hashed)
-  │
-  └──< assets ──< asset_vulnerabilities >── vulnerabilities
-        │                                        (NVD CVE data)
-        └──< alerts  (nullable FK — alert survives asset deletion)
-
-ioc_records  (enriched threat intel per indicator, TTL-based)
-feed_syncs   (job run history: duration, records processed, errors)
-```
-
-**Key design decisions:**
-- Refresh tokens and API keys are never stored in plaintext — refresh tokens use SHA-256, passwords use bcrypt (12 rounds)
-- `asset_vulnerabilities` is a proper join table with a `status` enum (`open` → `acknowledged` → `remediated`)
-- `ioc_records.expires_at` lets the API serve stale data as a fallback while background workers refresh
-- All foreign keys have explicit `ON DELETE` actions (CASCADE or SET NULL)
-
----
-
-## Quick Start
-
-### With Docker (recommended)
-
-```bash
-cp .env.example .env
-# Edit .env — set JWT_SECRET at minimum (openssl rand -base64 48)
-
-docker compose up
-```
-
-| Service | URL | Credentials |
-|---|---|---|
-| API | `http://localhost:3001` | — |
-| Swagger UI | `http://localhost:3001/docs` | — |
-| Prometheus | `http://localhost:9090` | — |
-| Grafana | `http://localhost:3002` | admin / admin |
-
-### Local development
-
-```bash
-npm install
-cp .env.example .env
-
-# Start infrastructure only
-docker compose up postgres redis -d
-
-npm run db:migrate        # run both migrations
-npm run dev               # API on :3001
-npm run dev:worker        # background workers (separate terminal)
-```
-
-### Useful scripts
-
-```bash
-npm run db:generate       # regenerate Drizzle migration files from schema
-npm run db:studio         # open Drizzle Studio (visual DB browser)
-npm run lint              # TypeScript type check (no emit)
-```
-
----
-
-## Auth & Security
-
-### Token flow (browser / mobile clients)
-
-```
-POST /api/v1/auth/login
-  → { accessToken (JWT, 15 min), refreshToken (opaque, 30 days), expiresIn: 900 }
-
-# When access token expires, silently renew:
-POST /api/v1/auth/refresh  { refreshToken: "..." }
-  → { accessToken (new JWT, 15 min), expiresIn: 900 }
-
-# On logout, invalidate the refresh token:
-POST /api/v1/auth/logout   { refreshToken: "..." }
-  → { success: true }
-```
-
-Refresh tokens are random 128-char hex strings stored as SHA-256 hashes. Revoking one does not invalidate others (supports multi-device).
-
-### API key flow (server-to-server)
-
-The dashboard calls this API without a user login flow. Use an API key instead:
-
-```bash
-# One-time setup: create a key (requires a JWT from your own login)
-curl -X POST http://localhost:3001/api/v1/auth/api-keys \
-  -H "Authorization: Bearer <your-jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "online-cyber-dashboard"}'
-# → { "data": { "key": "tip_abc123...", "id": "...", "name": "..." } }
-#   The key is shown exactly once. Store it securely.
-```
-
-Keys are prefixed `tip_` and stored as SHA-256 hashes — not recoverable if lost. Revoke with `DELETE /api/v1/auth/api-keys/:id`.
-
-### Request correlation
-
-Every request gets a `X-Request-ID` (accepted from caller or minted as UUID). Every log line includes `reqId`. Every response echoes `X-Request-ID` back, so you can trace a dashboard request through API logs and worker logs.
+| HTTP API | Fastify 4 + TypeScript |
+| ORM | Drizzle ORM (typed schema, SQL migrations) |
+| Database | PostgreSQL 16 |
+| Cache + Queue broker | Redis 7 |
+| Job queues | BullMQ |
+| Auth | JWT (15 min access) + refresh tokens (30 days) + API keys |
+| Validation | Zod throughout (env, request body, query params) |
+| Structured logging | Pino (JSON in prod, pretty-printed in dev) |
+| Metrics | Prometheus (`prom-client`) + Grafana |
+| Containers | Docker multi-stage build (`api` + `worker` targets) |
+| CI/CD | GitHub Actions: type check → security audit → unit + integration tests → Codecov |
+| Testing | Vitest — unit (mocked externals) + integration (real Postgres + Redis) |
+| Docs | Auto-generated Swagger UI at `/docs` |
+| Deployment | Railway — API and Worker as separate services sharing Postgres + Redis |
 
 ---
 
 ## API Reference
 
-All endpoints except `/health`, `/metrics`, `/docs`, and `/api/v1/auth/register|login|refresh` require one of:
-- `Authorization: Bearer <accessToken>`
+All endpoints except `/health`, `/metrics`, `/docs`, and `/api/v1/auth/register|login|refresh` require:
+- `Authorization: Bearer <accessToken>`, or
 - `X-API-Key: tip_<key>`
 
-The full interactive spec is at **`http://localhost:3001/docs`**.
+Full interactive spec at **`/docs`**.
 
 ### Auth
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/v1/auth/register` | Create account → `{ accessToken, refreshToken, user }` |
-| `POST` | `/api/v1/auth/login` | Login → `{ accessToken, refreshToken, expiresIn: 900, user }` |
+| `POST` | `/api/v1/auth/register` | Create account |
+| `POST` | `/api/v1/auth/login` | Login → `{ accessToken, refreshToken }` |
 | `POST` | `/api/v1/auth/refresh` | New access token from refresh token |
 | `POST` | `/api/v1/auth/logout` | Revoke a refresh token |
 | `GET` | `/api/v1/auth/me` | Current user profile |
-| `GET` | `/api/v1/auth/api-keys` | List your API keys (hashes never shown) |
-| `POST` | `/api/v1/auth/api-keys` | Create API key — `{ "name": "..." }` → key shown once |
+| `POST` | `/api/v1/auth/api-keys` | Create API key — shown once |
 | `DELETE` | `/api/v1/auth/api-keys/:id` | Revoke an API key |
+
+### Recon Sessions *(new)*
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/recon-sessions` | List sessions — filter by `tool`, cursor pagination |
+| `GET` | `/api/v1/recon-sessions/:id` | Single session with full results JSON |
+| `POST` | `/api/v1/recon-sessions` | Save a tool result `{ tool, target, summary, results, tags }` |
+| `PATCH` | `/api/v1/recon-sessions/:id` | Update `tags` or `notes` |
+| `DELETE` | `/api/v1/recon-sessions/:id` | Delete session |
+
+**Supported tools:** `ip` `domain` `subdomains` `ssl` `headers` `portscan` `dns` `reverseip` `asn` `whoishistory` `certs` `traceroute` `url` `email` `ioc` `shodan` `tech` `waf` `cors`
 
 ### Assets
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/v1/assets` | List assets — paginated, filterable by `type`, `active` |
-| `POST` | `/api/v1/assets` | Register asset — immediately queues IOC scan + CVE correlation |
+| `GET` | `/api/v1/assets` | List — paginated, filterable by `type`, `active` |
+| `POST` | `/api/v1/assets` | Register asset — queues IOC scan + CVE correlation immediately |
 | `GET` | `/api/v1/assets/:id` | Single asset |
 | `PATCH` | `/api/v1/assets/:id` | Update `label`, `tags`, `active` |
-| `DELETE` | `/api/v1/assets/:id` | Remove asset (cascades to alerts + vuln links) |
-
-**Asset types:** `ip`, `domain`, `cidr`, `url`
+| `DELETE` | `/api/v1/assets/:id` | Remove (cascades to alerts + vuln links) |
 
 ### Alerts
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/v1/alerts` | List alerts — filter by `severity`, `type`, `unread`, `assetId` |
+| `GET` | `/api/v1/alerts` | List — filter by `severity`, `type`, `unread`, `assetId` |
 | `POST` | `/api/v1/alerts/:id/read` | Mark single alert as read |
-| `POST` | `/api/v1/alerts/read-all` | Mark all alerts as read |
+| `POST` | `/api/v1/alerts/read-all` | Mark all as read |
 | `DELETE` | `/api/v1/alerts/:id` | Delete alert |
-
-**Alert types:** `vulnerability`, `ioc_match`, `scan_complete`, `feed_update`
 
 ### Vulnerabilities
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/v1/vulnerabilities` | Global CVE list — filter by `severity`, `search` (CVE ID) |
-| `GET` | `/api/v1/vulnerabilities?assetId=X` | CVEs linked to a specific asset, with per-asset `status` |
-| `GET` | `/api/v1/vulnerabilities/:cveId` | Single CVE detail with raw NVD data |
+| `GET` | `/api/v1/vulnerabilities` | Global CVE list — filter by `severity`, `search` |
+| `GET` | `/api/v1/vulnerabilities?assetId=X` | CVEs linked to a specific asset |
+| `GET` | `/api/v1/vulnerabilities/:cveId` | Single CVE with raw NVD data |
 | `PATCH` | `/api/v1/assets/:assetId/vulnerabilities/:cveId` | Update remediation status |
-
-**Vuln statuses:** `open` → `acknowledged` → `remediated` → `false_positive`
 
 ### IOC Lookup
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/v1/ioc/:indicator` | Enrich IP, domain, or hash — checks Redis → DB → live APIs |
-| `GET` | `/api/v1/ioc` | List all cached IOC records — filter by `verdict` |
-
-**Verdicts:** `malicious`, `suspicious`, `clean`, `unknown`
-
-### System
-| Endpoint | Description |
-|---|---|
-| `GET /health` | Always returns `{ status: "ok" }` — used by Railway and load balancers |
-| `GET /metrics` | Prometheus scrape endpoint |
-| `GET /docs` | Swagger UI — full interactive OpenAPI 3.0 spec |
+| `GET` | `/api/v1/ioc/:indicator` | Enrich IP, domain, or hash — Redis → DB → live APIs |
+| `GET` | `/api/v1/ioc` | List cached IOC records — filter by `verdict` |
 
 ### Pagination
 
-All list endpoints use cursor-based pagination (no offset drift on live data):
+All list endpoints use cursor-based pagination — no offset drift on live data:
 
 ```
-GET /api/v1/alerts?limit=20&cursor=2024-01-15T10:00:00.000Z&severity=high&unread=true
-→ {
-    data: [...],
-    nextCursor: "2024-01-14T09:30:00.000Z"   // null if no more pages
-  }
+GET /api/v1/recon-sessions?limit=20&cursor=2025-04-18T10:00:00.000Z&tool=ip
+→ { data: [...], nextCursor: "2025-04-17T09:30:00.000Z" | null }
 ```
-
-Pass `nextCursor` as `cursor` in your next request to get the next page.
 
 ---
 
 ## Background Workers
 
-Workers run as a separate process (`npm run dev:worker`) consuming three BullMQ queues backed by Redis.
-
 | Queue | Schedule | What it does |
 |---|---|---|
-| `cve-feed` | Every 6 hours | Pages through NVD API, upserts CVEs into `vulnerabilities` table, records run stats in `feed_syncs`. Retries each page up to 4× with exponential backoff + jitter if NVD rate-limits mid-sync. |
-| `ioc-scan` | Every hour | Enriches all active IP/domain assets via AbuseIPDB + VirusTotal + AlienVault OTX in parallel. Inserts/updates `ioc_records`. Creates `ioc_match` alert on malicious/suspicious verdict. Sends email if SMTP configured. |
-| `asset-scan` | On asset creation | Correlates the asset value against CPE strings in all known CVEs. Links matches in `asset_vulnerabilities`. Creates `vulnerability` alert for critical/high CVEs. Sends email if SMTP configured. |
-
-All workers track job duration in Prometheus (`job_duration_seconds`) and increment `jobs_total{status="completed|failed"}` for the Grafana dashboard.
+| `cve-feed` | Every 6 hours | Pages NVD API, upserts CVEs into `vulnerabilities`, records run in `feed_syncs`. Retries with exponential backoff + jitter on rate limits. |
+| `ioc-scan` | Every 1 hour | Enriches all active IP/domain assets via AbuseIPDB + VirusTotal + OTX in parallel. Creates `ioc_match` alerts on malicious verdicts. Emails if SMTP configured. |
+| `asset-scan` | On asset creation | CPE string correlation against known CVEs. Links matches in `asset_vulnerabilities`. Creates alerts for critical/high CVEs. |
 
 ---
 
 ## Observability
 
-### Prometheus + Grafana
-
 ```bash
 docker compose up   # starts Prometheus + Grafana automatically
+# Grafana → http://localhost:3002  (admin / admin)
 ```
 
-Open Grafana at `http://localhost:3002` (admin / admin). The **Threat Intelligence Platform** dashboard loads automatically with 8 panels:
+8-panel Grafana dashboard (pre-provisioned, loads automatically):
 
 | Panel | Metric |
 |---|---|
 | Requests / min | `rate(http_requests_total[5m])` |
-| Error rate % | 5xx / total requests |
+| Error rate % | 5xx / total |
 | Active assets | `active_assets_total` gauge |
-| Cache hit rate | hits / (hits + misses) |
+| IOC cache hit rate | hits / (hits + misses) |
 | Request latency | p50 / p95 / p99 histogram |
 | Background job rate | completed vs failed by queue |
-| Requests by route | breakdown per endpoint |
-| Open alerts | by severity (critical / high / medium / low) |
-
-### Structured logging
-
-Every log line is structured JSON (Pino) with `reqId`, `service`, and `env` fields. In development, `pino-pretty` formats it for readability:
-
-```
-10:24:31 INFO  reqId=a3f2... method=POST url=/api/v1/assets status=201 ms=12.4
-10:24:31 WARN  reqId=a3f2... indicator=1.2.3.4 verdict=malicious score=87  IOC threat detected
-```
+| Requests by route | per-endpoint breakdown |
+| Open alerts | by severity |
 
 ---
 
 ## Testing
 
 ```bash
-npm run test:unit          # unit tests — no DB or Redis needed (external APIs are mocked)
-npm run test:integration   # integration tests — requires Postgres + Redis running
-npm run test:coverage      # all tests with v8 coverage report → coverage/
+npm run test:unit          # unit — no DB/Redis needed, external APIs mocked
+npm run test:integration   # integration — requires live Postgres + Redis
+npm run test:coverage      # all tests + v8 coverage → coverage/
 ```
 
-Integration tests use `fastify.inject()` — no real HTTP port, no network — but hit a **live Postgres database** for real query behaviour. The test setup truncates all tables `beforeEach` for isolation.
+Integration tests use `fastify.inject()` — no real HTTP port — but hit a **live Postgres database** for authentic query behaviour. Tables are truncated `beforeEach` for full isolation. CI runs the full suite with Postgres and Redis as service containers and uploads coverage to Codecov.
 
-CI runs the full suite with Postgres and Redis as service containers, uploads results to Codecov, and fails on `npm audit --audit-level=high` findings.
+---
+
+## Local Setup
+
+### With Docker (recommended)
+
+```bash
+cp .env.example .env
+# Set JWT_SECRET: openssl rand -base64 48
+
+docker compose up
+# API → http://localhost:3001
+# Swagger → http://localhost:3001/docs
+# Grafana → http://localhost:3002  (admin / admin)
+```
+
+### Local development
+
+```bash
+npm install
+cp .env.example .env
+docker compose up postgres redis -d
+
+npm run db:migrate
+npm run dev           # API on :3001
+npm run dev:worker    # background workers (separate terminal)
+```
 
 ---
 
 ## Railway Deployment
 
-The API and Worker run as two separate Railway services sharing the same Postgres and Redis add-ons.
-
-### Services
-
-| Service | Config file | Start command | Notes |
-|---|---|---|---|
-| API | `railway.toml` | `node dist/index.js` | Runs DB migrations inline on every deploy, then starts Fastify |
-| Worker | `railway.worker.toml` | `node dist/worker.js` | BullMQ consumers + recurring job scheduler |
-
-### How deploys work
-
-1. Railway builds the `api` Docker stage from `Dockerfile`
-2. On startup, `index.ts` runs all pending Drizzle migrations before binding the HTTP port — no separate migration step needed
-3. The `health` endpoint at `/health` returns 200 immediately once the server is up
-
-### Architecture on Railway
+Two services share one Postgres and one Redis add-on:
 
 ```
 Railway project
-├── API service          (Dockerfile target: api)
-│   └── auto-runs migrations → starts Fastify on $PORT
-├── Worker service       (Dockerfile target: worker)
-│   └── consumes BullMQ queues, no HTTP port
-├── Postgres add-on      (shared between both services)
-└── Redis add-on         (shared between both services)
+├── API service     (Dockerfile target: api)
+│   └── runs migrations on startup → starts Fastify on $PORT
+├── Worker service  (Dockerfile target: worker)
+│   └── BullMQ consumers, no HTTP port
+├── Postgres add-on
+└── Redis add-on
 ```
 
-### Required environment variables on Railway
-
-Set these in each service's variable panel (use Railway's variable references where possible):
+**Required environment variables:**
 
 ```
 DATABASE_URL   = ${{Postgres.DATABASE_URL}}
 REDIS_URL      = ${{Redis.REDIS_URL}}
-JWT_SECRET     = <generate: openssl rand -base64 48>
-CORS_ORIGIN    = https://your-dashboard-domain.com
+JWT_SECRET     = <openssl rand -base64 48>
+CORS_ORIGIN    = https://your-dashboard.vercel.app
 NODE_ENV       = production
 ```
 
-External API keys (`ABUSEIPDB_API_KEY`, `VT_API_KEY`, `NVD_API_KEY`, `OTX_API_KEY`) are optional — all features degrade gracefully without them.
-
----
-
-## Dashboard Integration
-
-The dashboard calls this API as a backend service using a long-lived API key — no user login flow, no Clerk tokens, no session management needed on the backend side.
-
-**Setup (one time):**
-
-```bash
-# 1. Register your own account on the backend
-curl -X POST http://localhost:3001/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@yoursite.com","password":"strongpassword"}'
-
-# 2. Create a named API key for the dashboard
-curl -X POST http://localhost:3001/api/v1/auth/api-keys \
-  -H "Authorization: Bearer <accessToken from step 1>" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"online-cyber-dashboard"}'
-# → { "data": { "key": "tip_abc123...", ... } }
-```
-
-**In `Online-Cyber-Dashboard/.env.local`:**
-
-```env
-THREAT_INTEL_API_URL=http://localhost:3001
-THREAT_INTEL_API_KEY=tip_abc123...
-```
-
-**Calling from a Next.js route handler:**
-
-```typescript
-// app/api/threat/assets/route.ts
-export async function GET() {
-  const res = await fetch(`${process.env.THREAT_INTEL_API_URL}/api/v1/assets`, {
-    headers: { 'X-API-Key': process.env.THREAT_INTEL_API_KEY! },
-    next: { revalidate: 60 },
-  });
-  const { data } = await res.json();
-  return Response.json({ data });
-}
-
-// app/api/threat/alerts/route.ts
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const url = new URL(`${process.env.THREAT_INTEL_API_URL}/api/v1/alerts`);
-  url.searchParams.set('unread', 'true');
-  url.searchParams.set('limit', searchParams.get('limit') ?? '20');
-
-  const res = await fetch(url.toString(), {
-    headers: { 'X-API-Key': process.env.THREAT_INTEL_API_KEY! },
-  });
-  return Response.json(await res.json());
-}
-```
-
----
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in required values.
-
-### Required
-
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | Postgres connection string |
-| `JWT_SECRET` | Min 32 characters — generate with `openssl rand -base64 48` |
-
-### Auth
-
-| Variable | Default | Description |
-|---|---|---|
-| `ACCESS_TOKEN_EXPIRY` | `15m` | JWT access token lifetime |
-| `REFRESH_TOKEN_EXPIRY_DAYS` | `30` | Refresh token lifetime in days |
-
-### Infrastructure
-
-| Variable | Default | Description |
-|---|---|---|
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
-| `DB_POOL_MAX` | `20` | Max Postgres connection pool size |
-| `PORT` | `3001` | HTTP server port |
-| `HOST` | `0.0.0.0` | HTTP bind address |
-| `CORS_ORIGIN` | `http://localhost:3000` | Comma-separated allowed origins |
-| `LOG_LEVEL` | `info` | `trace` `debug` `info` `warn` `error` `fatal` |
-
-### External APIs (all optional — features degrade gracefully)
-
-| Variable | Used for |
-|---|---|
-| `ABUSEIPDB_API_KEY` | IP reputation scoring in IOC enrichment |
-| `VT_API_KEY` | VirusTotal IP and domain analysis |
-| `NVD_API_KEY` | Higher NVD rate limit (50 req/30s vs 5 req/30s) |
-| `OTX_API_KEY` | AlienVault OTX threat pulse lookup |
-
-### Email alerts (optional)
-
-| Variable | Default | Description |
-|---|---|---|
-| `SMTP_HOST` | — | SMTP server host — leave blank to disable email |
-| `SMTP_PORT` | `587` | SMTP port |
-| `SMTP_USER` | — | SMTP username |
-| `SMTP_PASS` | — | SMTP password |
-| `SMTP_FROM` | `alerts@threat-intel.local` | Sender address |
-
-### Observability
-
-| Variable | Default | Description |
-|---|---|---|
-| `GRAFANA_PASSWORD` | `admin` | Grafana admin password (docker-compose only) |
+Optional: `ABUSEIPDB_API_KEY`, `VT_API_KEY`, `NVD_API_KEY`, `OTX_API_KEY`, `SMTP_*` — all features degrade gracefully without them.
 
 ---
 
@@ -483,50 +307,50 @@ Copy `.env.example` to `.env` and fill in required values.
 ```
 src/
 ├── api/
-│   ├── plugins/
-│   │   └── auth.ts          # JWT + API key authenticate decorator
+│   ├── plugins/auth.ts          JWT + API key authenticate decorator
 │   ├── routes/
-│   │   ├── auth.ts          # register / login / refresh / logout / api-keys
-│   │   ├── assets.ts        # CRUD + pagination
-│   │   ├── alerts.ts        # list / read / delete
+│   │   ├── recon-sessions.ts    ← new: dashboard recon output store
+│   │   ├── assets.ts
+│   │   ├── alerts.ts
 │   │   ├── vulnerabilities.ts
 │   │   ├── ioc.ts
-│   │   └── health.ts        # /health + /metrics
-│   └── server.ts            # Fastify setup, CORS, rate limit, swagger, hooks
+│   │   └── health.ts
+│   └── server.ts                Fastify setup, CORS, rate limit, swagger
 ├── db/
-│   ├── schema/              # Drizzle table definitions (9 tables)
-│   ├── index.ts             # postgres.js connection + Drizzle instance
-│   └── migrate.ts           # migration runner
-├── lib/
-│   ├── env.ts               # Zod-validated environment
-│   ├── logger.ts            # Pino structured logger
-│   ├── mailer.ts            # Nodemailer — skips if SMTP_HOST unset
-│   ├── metrics.ts           # Prometheus counters, histograms, gauges
-│   └── redis.ts             # ioredis client + cache helpers
+│   ├── schema/
+│   │   ├── recon-sessions.ts    ← new
+│   │   ├── assets.ts
+│   │   ├── vulnerabilities.ts
+│   │   ├── ioc-records.ts
+│   │   ├── alerts.ts
+│   │   ├── users.ts
+│   │   ├── api-keys.ts
+│   │   ├── refresh-tokens.ts
+│   │   ├── feed-syncs.ts
+│   │   └── enums.ts
+│   └── index.ts
 ├── services/
-│   ├── nvd.ts               # NVD CVE API client
+│   ├── ioc-enrichment.ts        fan-out + Redis cache
+│   ├── nvd.ts
 │   ├── abuseipdb.ts
 │   ├── virustotal.ts
-│   ├── otx.ts
-│   └── ioc-enrichment.ts    # fan-out across all sources, Redis cache
+│   └── otx.ts
 ├── workers/
-│   ├── queues.ts            # BullMQ Queue definitions + recurring job setup
-│   ├── cve-feed-worker.ts   # NVD sync with exponential backoff
-│   ├── ioc-scan-worker.ts   # per-asset IOC enrichment + email alerts
-│   └── asset-scan-worker.ts # CVE correlation + email alerts
-├── index.ts                 # API server entry point
-└── worker.ts                # Worker process entry point
+│   ├── cve-feed-worker.ts       NVD sync + exponential backoff
+│   ├── ioc-scan-worker.ts       per-asset enrichment + email alerts
+│   ├── asset-scan-worker.ts     CVE correlation + email alerts
+│   └── queues.ts
+├── lib/
+│   ├── env.ts                   Zod-validated environment
+│   ├── logger.ts                Pino
+│   ├── metrics.ts               Prometheus counters, histograms, gauges
+│   ├── redis.ts                 ioredis client + cache helpers
+│   └── mailer.ts
+├── index.ts                     API entry point
+└── worker.ts                    Worker process entry point
 
 drizzle/
 ├── 0000_initial_schema.sql
-└── 0001_refresh_and_api_keys.sql
-
-grafana/
-├── dashboards/threat-intel.json
-└── provisioning/
-    ├── datasources/prometheus.yml
-    └── dashboards/dashboard.yml
-
-.github/workflows/ci.yml     # lint → audit → test → coverage → docker build
-prometheus.yml               # scrape config
+├── 0001_refresh_and_api_keys.sql
+└── 0002_recon_sessions.sql      ← new
 ```
