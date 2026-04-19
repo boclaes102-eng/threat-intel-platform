@@ -61,22 +61,35 @@ export default async function vulnerabilityRoutes(fastify: FastifyInstance) {
       return { data, nextCursor: hasNext ? data[data.length - 1].discoveredAt.toISOString() : null };
     }
 
-    // Global CVE list — no user scope (public CVE data)
-    const vulnConditions = [];
-    if (cursor) vulnConditions.push(lt(vulnerabilities.createdAt, new Date(cursor)));
+    // User-scoped CVE list — only CVEs linked to this user's assets
+    const vulnConditions = [eq(assets.userId, userId)];
+    if (cursor)   vulnConditions.push(lt(vulnerabilities.publishedAt, new Date(cursor)));
     if (severity) vulnConditions.push(eq(vulnerabilities.severity, severity));
-    if (search) vulnConditions.push(ilike(vulnerabilities.cveId, `%${search}%`));
+    if (search)   vulnConditions.push(ilike(vulnerabilities.cveId, `%${search}%`));
 
     const rows = await db
-      .select()
+      .selectDistinct({
+        id:               vulnerabilities.id,
+        cveId:            vulnerabilities.cveId,
+        title:            vulnerabilities.title,
+        description:      vulnerabilities.description,
+        severity:         vulnerabilities.severity,
+        cvssScore:        vulnerabilities.cvssScore,
+        cvssVector:       vulnerabilities.cvssVector,
+        publishedAt:      vulnerabilities.publishedAt,
+        affectedProducts: vulnerabilities.affectedProducts,
+        createdAt:        vulnerabilities.createdAt,
+      })
       .from(vulnerabilities)
-      .where(vulnConditions.length ? and(...vulnConditions) : undefined)
+      .innerJoin(assetVulnerabilities, eq(assetVulnerabilities.vulnerabilityId, vulnerabilities.id))
+      .innerJoin(assets, and(eq(assets.id, assetVulnerabilities.assetId), eq(assets.userId, userId)))
+      .where(and(...vulnConditions))
       .orderBy(desc(vulnerabilities.publishedAt))
       .limit(limit + 1);
 
     const hasNext = rows.length > limit;
     const data = hasNext ? rows.slice(0, limit) : rows;
-    return { data, nextCursor: hasNext ? data[data.length - 1].createdAt.toISOString() : null };
+    return { data, nextCursor: hasNext ? data[data.length - 1].publishedAt.toISOString() : null };
   });
 
   fastify.get<{ Params: { cveId: string } }>('/vulnerabilities/:cveId', async (request, reply) => {
