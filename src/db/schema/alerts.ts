@@ -6,7 +6,7 @@ import { alertTypeEnum, alertSeverityEnum } from './enums';
 export const alerts = pgTable('alerts', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+  assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'cascade' }),
   type: alertTypeEnum('type').notNull(),
   severity: alertSeverityEnum('severity').notNull(),
   title: varchar('title', { length: 500 }).notNull(),
