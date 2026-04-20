@@ -58,11 +58,9 @@ export default async function eventRoutes(fastify: FastifyInstance) {
     }
 
     const { limit, cursor, category, severity, source, since } = query.data;
-    const userId = request.user.id;
     const sinceDate = new Date(Date.now() - SINCE_MS[since]);
 
     const conditions = [
-      eq(logEvents.userId, userId),
       gte(logEvents.createdAt, sinceDate),
     ];
     if (cursor)   conditions.push(lt(logEvents.createdAt, new Date(cursor)));

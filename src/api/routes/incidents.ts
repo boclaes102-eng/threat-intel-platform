@@ -26,9 +26,8 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
     }
 
     const { limit, cursor, status, severity } = query.data;
-    const userId = request.user.id;
 
-    const conditions = [eq(incidents.userId, userId)];
+    const conditions: ReturnType<typeof eq>[] = [];
     if (cursor)   conditions.push(lt(incidents.createdAt, new Date(cursor)));
     if (status)   conditions.push(eq(incidents.status, status));
     if (severity) conditions.push(eq(incidents.severity, severity));
@@ -36,7 +35,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
     const rows = await db
       .select()
       .from(incidents)
-      .where(and(...conditions))
+      .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(incidents.createdAt))
       .limit(limit + 1);
 
@@ -57,7 +56,7 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
     }
 
     const incident = await db.query.incidents.findFirst({
-      where: and(eq(incidents.id, request.params.id), eq(incidents.userId, request.user.id)),
+      where: eq(incidents.id, request.params.id),
     });
     if (!incident) return reply.status(404).send({ error: 'Incident not found' });
 
