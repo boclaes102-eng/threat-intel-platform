@@ -1,7 +1,7 @@
 import { Worker, type Job } from 'bullmq';
 import { eq, and, isNull, lte } from 'drizzle-orm';
 import { db } from '../db';
-import { assets, iocRecords, alerts, users, logEvents } from '../db/schema';
+import { assets, iocRecords, alerts, users } from '../db/schema';
 import { enrichIoc } from '../services/ioc-enrichment';
 import { sendAlertEmail } from '../lib/mailer';
 import { jobsTotal, jobDuration } from '../lib/metrics';
@@ -88,19 +88,6 @@ async function scanSingleAsset(assetId: string, indicator: string, userId: strin
       severity,
       title,
       details: { indicator, verdict: result.verdict, score: result.score, sources: result.sources },
-    });
-
-    // Emit SIEM event for correlation
-    const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(indicator);
-    await db.insert(logEvents).values({
-      userId,
-      source:   'ioc-scanner',
-      category: 'threat',
-      action:   'ioc_match',
-      severity,
-      sourceIp: isIp ? indicator : undefined,
-      message:  `IOC match: ${indicator} — ${result.verdict} (score: ${result.score})`,
-      rawData:  { indicator, verdict: result.verdict, score: result.score },
     });
 
     // Send email notification (fire-and-forget, no-op if SMTP not configured)

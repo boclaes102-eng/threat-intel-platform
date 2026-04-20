@@ -1,7 +1,7 @@
 import { Worker, type Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
-import { assets, vulnerabilities, assetVulnerabilities, alerts, users, logEvents } from '../db/schema';
+import { assets, vulnerabilities, assetVulnerabilities, alerts, users } from '../db/schema';
 import { sendAlertEmail } from '../lib/mailer';
 import { jobsTotal, jobDuration } from '../lib/metrics';
 import { logger } from '../lib/logger';
@@ -58,17 +58,6 @@ export function createAssetScanWorker() {
               const details = { cveId: vuln.cveId, cvssScore: vuln.cvssScore, severity, description: vuln.description?.slice(0, 200) };
 
               await db.insert(alerts).values({ userId, assetId, type: 'vulnerability', severity, title, details });
-
-              // Emit SIEM event for correlation
-              await db.insert(logEvents).values({
-                userId,
-                source:   'asset-scanner',
-                category: 'threat',
-                action:   'vuln_match',
-                severity,
-                message:  `${vuln.cveId} matched asset ${asset.value}`,
-                rawData:  { cveId: vuln.cveId, cvssScore: vuln.cvssScore, assetId },
-              });
 
               const user = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { email: true } });
               if (user) {
