@@ -1,5 +1,5 @@
 import { Worker, type Job } from 'bullmq';
-import { eq, and, gte, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, gte, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { logEvents, incidents } from '../db/schema';
 import { jobsTotal, jobDuration } from '../lib/metrics';
@@ -13,7 +13,7 @@ function windowStart(seconds: number): Date {
 }
 
 async function upsertIncident(
-  userId: string,
+  userId: string | null,
   ruleName: string,
   title: string,
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info',
@@ -21,9 +21,10 @@ async function upsertIncident(
   firstSeen: Date,
 ) {
   // Find an open/investigating incident for this rule that is still within 2x the window
+  const userCondition = userId ? eq(incidents.userId, userId) : isNull(incidents.userId);
   const existing = await db.query.incidents.findFirst({
     where: and(
-      eq(incidents.userId, userId),
+      userCondition,
       eq(incidents.ruleName, ruleName),
       gte(incidents.lastSeenAt, windowStart(windowSeconds * 2)),
     ),
@@ -52,8 +53,12 @@ async function upsertIncident(
 
 // ── Rules ──────────────────────────────────────────────────────────────────
 
+function userFilter(userId: string | null) {
+  return userId ? eq(logEvents.userId, userId) : isNull(logEvents.userId);
+}
+
 // Rule 1: Brute Force — 5+ login_failed from same source IP in 2 min
-async function evalBruteForce(userId: string) {
+async function evalBruteForce(userId: string | null) {
   const rows = await db
     .select({
       sourceIp: logEvents.sourceIp,
@@ -62,7 +67,7 @@ async function evalBruteForce(userId: string) {
     })
     .from(logEvents)
     .where(and(
-      eq(logEvents.userId, userId),
+      userFilter(userId),
       eq(logEvents.action, 'login_failed'),
       gte(logEvents.createdAt, windowStart(120)),
       isNotNull(logEvents.sourceIp),
@@ -83,7 +88,7 @@ async function evalBruteForce(userId: string) {
 }
 
 // Rule 2: Port Scan — 10+ unique destination ports from same source IP in 5 min
-async function evalPortScan(userId: string) {
+async function evalPortScan(userId: string | null) {
   const rows = await db
     .select({
       sourceIp:    logEvents.sourceIp,
@@ -92,7 +97,7 @@ async function evalPortScan(userId: string) {
     })
     .from(logEvents)
     .where(and(
-      eq(logEvents.userId, userId),
+      userFilter(userId),
       eq(logEvents.action, 'port_probe'),
       gte(logEvents.createdAt, windowStart(300)),
       isNotNull(logEvents.sourceIp),
@@ -114,7 +119,7 @@ async function evalPortScan(userId: string) {
 }
 
 // Rule 3: IOC Spike — 3+ ioc_match events in 10 min
-async function evalIocSpike(userId: string) {
+async function evalIocSpike(userId: string | null) {
   const [row] = await db
     .select({
       count:    sql<number>`count(*)::int`,
@@ -122,7 +127,7 @@ async function evalIocSpike(userId: string) {
     })
     .from(logEvents)
     .where(and(
-      eq(logEvents.userId, userId),
+      userFilter(userId),
       eq(logEvents.action, 'ioc_match'),
       gte(logEvents.createdAt, windowStart(600)),
     ));
@@ -140,7 +145,7 @@ async function evalIocSpike(userId: string) {
 }
 
 // Rule 4: Credential Stuffing — 10+ login_failed across 3+ distinct target IPs in 5 min
-async function evalCredentialStuffing(userId: string) {
+async function evalCredentialStuffing(userId: string | null) {
   const [row] = await db
     .select({
       total:          sql<number>`count(*)::int`,
@@ -149,7 +154,7 @@ async function evalCredentialStuffing(userId: string) {
     })
     .from(logEvents)
     .where(and(
-      eq(logEvents.userId, userId),
+      userFilter(userId),
       eq(logEvents.action, 'login_failed'),
       gte(logEvents.createdAt, windowStart(300)),
     ));
@@ -175,7 +180,8 @@ export function createEventCorrelationWorker() {
       const end = jobDuration.startTimer({ queue: 'event-correlation' });
 
       try {
-        // Get all users who have recent events (last 15 min)
+        // Get all distinct user contexts who have recent events (last 15 min)
+        // userId can be null for external sources like the personal website
         const userRows = await db
           .selectDistinct({ userId: logEvents.userId })
           .from(logEvents)
@@ -188,7 +194,7 @@ export function createEventCorrelationWorker() {
           await evalCredentialStuffing(userId);
         }
 
-        logger.info({ users: userRows.length }, 'Correlation run complete');
+        logger.info({ contexts: userRows.length }, 'Correlation run complete');
         jobsTotal.inc({ queue: 'event-correlation', status: 'completed' });
       } catch (err) {
         logger.error({ err }, 'Correlation run failed');

@@ -4,7 +4,7 @@ import { eventCategoryEnum, alertSeverityEnum } from './enums';
 
 export const logEvents = pgTable('log_events', {
   id:        uuid('id').primaryKey().defaultRandom(),
-  userId:    uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId:    uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
   source:    varchar('source', { length: 100 }).notNull(),
   category:  eventCategoryEnum('category').notNull(),
   action:    varchar('action', { length: 200 }).notNull(),

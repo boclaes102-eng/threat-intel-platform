@@ -43,6 +43,13 @@
       "when": 1745193600001,
       "tag": "0005_siem_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1745193600002,
+      "tag": "0006_log_events_nullable_user",
+      "breakpoints": true
     }
   ]
 }

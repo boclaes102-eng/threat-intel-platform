@@ -4,7 +4,7 @@ import { alertSeverityEnum, incidentStatusEnum } from './enums';
 
 export const incidents = pgTable('incidents', {
   id:          uuid('id').primaryKey().defaultRandom(),
-  userId:      uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId:      uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
   title:       varchar('title', { length: 500 }).notNull(),
   severity:    alertSeverityEnum('severity').notNull(),
   status:      incidentStatusEnum('status').notNull().default('open'),

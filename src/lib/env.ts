@@ -20,6 +20,8 @@ const schema = z.object({
   IOC_CACHE_TTL: z.coerce.number().default(3600),
   CVE_CACHE_TTL: z.coerce.number().default(21600),
 
+  SIEM_WEBHOOK_SECRET: z.string().optional(),
+
   ABUSEIPDB_API_KEY: z.string().optional(),
   VT_API_KEY: z.string().optional(),
   NVD_API_KEY: z.string().optional(),
