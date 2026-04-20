@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { sql } from 'drizzle-orm';
 import { redis } from './lib/redis';
 import { logger } from './lib/logger';
-import { cveFeedQueue, assetScanQueue, scheduleRecurringJobs } from './workers/queues';
+import { cveFeedQueue, scheduleRecurringJobs } from './workers/queues';
 import { createCveFeedWorker } from './workers/cve-feed-worker';
 import { createIocScanWorker } from './workers/ioc-scan-worker';
 import { createAssetScanWorker } from './workers/asset-scan-worker';
@@ -29,14 +29,6 @@ async function main() {
   if (count < 500) {
     logger.info({ count }, 'CVE database is thin — queuing 90-day bulk import');
     await cveFeedQueue.add('bulk-import', { daysBack: 90 });
-
-    const allAssets = await db.query.assets.findMany();
-    for (const asset of allAssets) {
-      await assetScanQueue.add('correlate-after-import', { assetId: asset.id, userId: asset.userId }, {
-        delay: 15 * 60 * 1000,
-      });
-    }
-    logger.info({ count: allAssets.length }, 'Queued asset re-scans after bulk import');
   }
 
   const shutdown = async (signal: string) => {
