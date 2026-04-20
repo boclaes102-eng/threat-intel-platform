@@ -27,15 +27,14 @@ export default async function incidentRoutes(fastify: FastifyInstance) {
 
     const { limit, cursor, status, severity } = query.data;
 
-    const conditions: ReturnType<typeof eq>[] = [];
-    if (cursor)   conditions.push(lt(incidents.createdAt, new Date(cursor)));
-    if (status)   conditions.push(eq(incidents.status, status));
-    if (severity) conditions.push(eq(incidents.severity, severity));
-
     const rows = await db
       .select()
       .from(incidents)
-      .where(conditions.length ? and(...conditions) : undefined)
+      .where(and(
+        cursor   ? lt(incidents.createdAt, new Date(cursor)) : undefined,
+        status   ? eq(incidents.status, status)              : undefined,
+        severity ? eq(incidents.severity, severity)          : undefined,
+      ))
       .orderBy(desc(incidents.createdAt))
       .limit(limit + 1);
 
