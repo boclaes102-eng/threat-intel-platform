@@ -57,12 +57,13 @@ function userFilter(userId: string | null) {
   return userId ? eq(logEvents.userId, userId) : isNull(logEvents.userId);
 }
 
-// Rule 1: Brute Force — 5+ login_failed from same source IP in 2 min
+// Rule 1: Brute Force — 5+ login_failed in 2 min (groups by sourceIp; null IPs treated as one group)
 async function evalBruteForce(userId: string | null) {
-  const rows = await db
+  // Branch A: known source IPs — group per IP
+  const ipRows = await db
     .select({
-      sourceIp: logEvents.sourceIp,
-      count:    sql<number>`count(*)::int`,
+      sourceIp:  logEvents.sourceIp,
+      count:     sql<number>`count(*)::int`,
       firstSeen: sql<Date>`min(${logEvents.createdAt})`,
     })
     .from(logEvents)
@@ -75,7 +76,7 @@ async function evalBruteForce(userId: string | null) {
     .groupBy(logEvents.sourceIp)
     .having(sql`count(*) >= 5`);
 
-  for (const row of rows) {
+  for (const row of ipRows) {
     await upsertIncident(
       userId,
       `brute_force:${row.sourceIp}`,
@@ -83,6 +84,31 @@ async function evalBruteForce(userId: string | null) {
       'high',
       120,
       row.firstSeen,
+    );
+  }
+
+  // Branch B: unknown source IPs (browser-based events) — aggregate all nulls
+  const [nullRow] = await db
+    .select({
+      count:     sql<number>`count(*)::int`,
+      firstSeen: sql<Date>`min(${logEvents.createdAt})`,
+    })
+    .from(logEvents)
+    .where(and(
+      userFilter(userId),
+      eq(logEvents.action, 'login_failed'),
+      gte(logEvents.createdAt, windowStart(120)),
+      isNull(logEvents.sourceIp),
+    ));
+
+  if (nullRow && nullRow.count >= 5) {
+    await upsertIncident(
+      userId,
+      'brute_force:unknown',
+      `Brute force detected from unknown source (${nullRow.count} attempts)`,
+      'high',
+      120,
+      nullRow.firstSeen,
     );
   }
 }

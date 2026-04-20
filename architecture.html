@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Three-Platform Architecture — Bo Claes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --bg-elevated: #11141a;
+    --bg-card: #14181f;
+    --border: #1f2530;
+    --border-bright: #2a3140;
+    --text: #e8eaed;
+    --text-dim: #8b93a0;
+    --text-muted: #5c6370;
+    --accent-web: #7dd3fc;
+    --accent-backend: #86efac;
+    --accent-desktop: #fbbf24;
+    --accent-data: #f472b6;
+    --danger: #ef4444;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --serif: 'Fraunces', Georgia, serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(125,211,252,0.05) 0%, transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(134,239,172,0.04) 0%, transparent 40%),
+      radial-gradient(circle at 50% 50%, rgba(251,191,36,0.03) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 64px 64px;
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 48px 32px 120px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .header {
+    margin-bottom: 64px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 32px;
+    align-items: end;
+  }
+
+  .header-left .eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header-left .eyebrow::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    max-width: 60px;
+  }
+
+  .header-left h1 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 48px;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    margin-bottom: 12px;
+  }
+  .header-left h1 em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--accent-web);
+  }
+
+  .header-left p {
+    color: var(--text-dim);
+    font-size: 14px;
+    max-width: 620px;
+  }
+
+  .meta {
+    text-align: right;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.8;
+  }
+  .meta .name {
+    color: var(--text);
+    font-weight: 500;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  .legend {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 48px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .diagram {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+    margin-bottom: 80px;
+  }
+
+  .platform {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 32px;
+    position: relative;
+    transition: border-color 0.2s ease;
+  }
+  .platform:hover { border-color: var(--border-bright); }
+
+  .platform::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--accent-web);
+  }
+  .platform[data-layer="backend"]::before { background: var(--accent-backend); }
+  .platform[data-layer="desktop"]::before { background: var(--accent-desktop); }
+
+  .platform-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px dashed var(--border);
+  }
+
+  .platform-title { display: flex; flex-direction: column; gap: 4px; }
+  .platform-title .layer-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .platform-title h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  .platform-title h2 span {
+    color: var(--accent-web);
+    font-style: italic;
+  }
+  .platform[data-layer="backend"] .platform-title h2 span { color: var(--accent-backend); }
+  .platform[data-layer="desktop"] .platform-title h2 span { color: var(--accent-desktop); }
+
+  .platform-stack {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    text-align: right;
+    max-width: 320px;
+    line-height: 1.8;
+  }
+
+  .platform-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .section-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 18px 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+  .section-block:hover {
+    border-color: var(--border-bright);
+    background: #181c24;
+  }
+  .section-block[data-open="true"] {
+    border-color: var(--accent-web);
+    background: #181c24;
+  }
+  .platform[data-layer="backend"] .section-block[data-open="true"] { border-color: var(--accent-backend); }
+  .platform[data-layer="desktop"] .section-block[data-open="true"] { border-color: var(--accent-desktop); }
+
+  .section-block .section-label {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .section-block h3 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .section-block .file-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+
+  .section-block .toggle {
+    position: absolute;
+    top: 18px;
+    right: 20px;
+    font-size: 16px;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+    line-height: 1;
+  }
+  .section-block[data-open="true"] .toggle {
+    transform: rotate(45deg);
+    color: var(--accent-web);
+  }
+  .platform[data-layer="backend"] .section-block[data-open="true"] .toggle { color: var(--accent-backend); }
+  .platform[data-layer="desktop"] .section-block[data-open="true"] .toggle { color: var(--accent-desktop); }
+
+  .section-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, margin-top 0.3s ease;
+  }
+  .section-block[data-open="true"] .section-detail {
+    max-height: 1200px;
+    margin-top: 16px;
+  }
+
+  .section-detail p {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 10px;
+    line-height: 1.65;
+  }
+
+  .section-detail .why-block {
+    background: var(--bg);
+    border-left: 2px solid var(--accent-data);
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .section-detail .why-block strong {
+    color: var(--accent-data);
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .section-detail code {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 2px;
+    color: var(--accent-web);
+    border: 1px solid var(--border);
+  }
+
+  .section-detail ul { list-style: none; margin-top: 6px; }
+  .section-detail ul li {
+    padding: 3px 0 3px 16px;
+    position: relative;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .section-detail ul li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--text-muted);
+  }
+
+  .connection {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 20px 24px;
+    position: relative;
+  }
+
+  .connection::before,
+  .connection::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-data), transparent);
+    max-width: 200px;
+  }
+
+  .connection-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    min-width: 380px;
+  }
+
+  .connection-arrow {
+    font-size: 20px;
+    color: var(--accent-data);
+    font-weight: 300;
+  }
+
+  .connection-label {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .connection-detail {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.5;
+  }
+  .connection-detail code {
+    font-size: 10px;
+    background: var(--bg);
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--accent-data);
+  }
+
+  .story-section {
+    margin-top: 80px;
+    padding: 40px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    position: relative;
+  }
+
+  .story-section::before {
+    content: 'USER FLOW';
+    position: absolute;
+    top: -10px;
+    left: 32px;
+    background: var(--bg);
+    padding: 0 12px;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    color: var(--text-muted);
+  }
+
+  .story-section h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 32px;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .story-section h2 em { color: var(--accent-data); font-style: italic; }
+
+  .story-section > p {
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    max-width: 720px;
+    font-size: 13px;
+  }
+
+  .story-flow {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    position: relative;
+  }
+
+  .story-step { padding: 20px 16px; position: relative; }
+  .story-step:not(:last-child)::after {
+    content: '→';
+    position: absolute;
+    right: -8px;
+    top: 28px;
+    color: var(--accent-data);
+    font-size: 18px;
+  }
+
+  .story-step .step-number {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 32px;
+    font-weight: 300;
+    color: var(--accent-data);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .story-step h4 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .story-step p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  .decisions-section { margin-top: 80px; }
+
+  .decisions-section h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 32px;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .decisions-section h2 em { font-style: italic; color: var(--accent-backend); }
+
+  .decisions-section > p {
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    max-width: 720px;
+    font-size: 13px;
+  }
+
+  .decisions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  .decision-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 20px;
+  }
+  .decision-card h4 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 16px;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .decision-card h4 span {
+    color: var(--accent-backend);
+    font-style: italic;
+  }
+  .decision-card p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .decision-card .tag {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    display: inline-block;
+  }
+
+  .callout {
+    margin-top: 80px;
+    padding: 40px;
+    background: linear-gradient(135deg, rgba(134,239,172,0.04), rgba(125,211,252,0.04));
+    border: 1px solid var(--border-bright);
+    border-radius: 4px;
+    position: relative;
+  }
+  .callout::before {
+    content: 'THE PARALLEL';
+    position: absolute;
+    top: -10px;
+    left: 32px;
+    background: var(--bg);
+    padding: 0 12px;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    color: var(--accent-backend);
+  }
+
+  .callout h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    margin-bottom: 24px;
+    max-width: 720px;
+    line-height: 1.25;
+  }
+  .callout h2 em { color: var(--accent-backend); font-style: italic; }
+
+  .parallel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    margin-top: 24px;
+  }
+  .parallel-col h5 {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .parallel-col h5 strong { color: var(--accent-backend); font-weight: 600; }
+  .parallel-col ul { list-style: none; }
+  .parallel-col ul li {
+    padding: 6px 0 6px 18px;
+    position: relative;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .parallel-col ul li::before {
+    content: '◆';
+    position: absolute;
+    left: 0;
+    color: var(--accent-backend);
+    font-size: 10px;
+    top: 8px;
+  }
+
+  .footer {
+    margin-top: 80px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  @media (max-width: 900px) {
+    .header { grid-template-columns: 1fr; }
+    .meta { text-align: left; }
+    .platform-body { grid-template-columns: 1fr; }
+    .platform-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    .platform-stack { text-align: left; }
+    .story-flow { grid-template-columns: 1fr; }
+    .story-step:not(:last-child)::after { display: none; }
+    .parallel-grid { grid-template-columns: 1fr; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .header, .legend, .platform, .connection, .story-section, .decisions-section, .callout {
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .scroll-top {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 40px;
+    height: 40px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-bright);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 14px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 10;
+  }
+  .scroll-top.visible { opacity: 1; }
+  .scroll-top:hover { border-color: var(--accent-web); color: var(--accent-web); }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header class="header">
+    <div class="header-left">
+      <div class="eyebrow">system architecture · v1.0</div>
+      <h1>Three-platform <em>security pipeline</em></h1>
+      <p>A web dashboard, a background API, and a desktop attack client — three separate applications, one shared API, one source of truth. Built end-to-end to mirror the architecture modern SaaS products run on.</p>
+    </div>
+    <div class="meta">
+      <div class="name">Bo Claes</div>
+      <div>Full-stack engineer</div>
+      <div>Built 2025 — 2026</div>
+      <div>bo.claes / github</div>
+    </div>
+  </header>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background: var(--accent-web);"></div>Web layer (browser)</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--accent-backend);"></div>Backend layer (server + workers)</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--accent-desktop);"></div>Desktop layer (operator client)</div>
+    <div class="legend-item"><div class="legend-dot" style="background: var(--accent-data);"></div>Data flow between platforms</div>
+    <div class="legend-item" style="color: var(--text-muted); font-size: 10px;">◦ click any block to expand</div>
+  </div>
+
+  <div class="diagram">
+
+    <div class="platform" data-layer="web">
+      <div class="platform-header">
+        <div class="platform-title">
+          <div class="layer-label">layer 01 · browser</div>
+          <h2>CyberOps <span>Dashboard</span></h2>
+        </div>
+        <div class="platform-stack">
+          Next.js 15 · TypeScript strict<br>
+          Tailwind CSS · Edge middleware<br>
+          Deployed: Vercel
+        </div>
+      </div>
+      <div class="platform-body">
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">routing</div>
+          <h3>App Router + tools</h3>
+          <div class="file-hint">src/app/tools/*</div>
+          <div class="section-detail">
+            <p>50+ tools, each in its own folder. Each tool is one <code>page.tsx</code> that renders a UI and calls a matching server route.</p>
+            <p>OSINT, recon, threat intelligence, web analysis, forensics — all share the same skeleton: input → loading state → fetch → render.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Self-contained tools means a new tool doesn't break existing ones. No shared state, no global store, no coupling.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">security model</div>
+          <h3>Server-side proxy routes</h3>
+          <div class="file-hint">src/app/api/*/route.ts</div>
+          <div class="section-detail">
+            <p>Every external API call goes through a Next.js server route. The browser never sees API keys or upstream URLs.</p>
+            <p>Example: <code>/api/ip?ip=1.2.3.4</code> runs server-side, injects the AbuseIPDB key from env, returns enriched data.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Client bundles are inspectable. Any API key shipped to the browser is public. Keys live server-side, period.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">edge layer</div>
+          <h3>Sliding-window rate limiter</h3>
+          <div class="file-hint">src/middleware.ts</div>
+          <div class="section-detail">
+            <p>Runs at Vercel's Edge before any function is invoked. Tracks timestamps per IP per route. Default: 60 req/min. Paid APIs: 20 req/min.</p>
+            <p>Rejected requests return <code>429</code> with <code>Retry-After</code> — never reach the serverless function. Zero compute cost.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Without rate limiting, one aggressive user can burn through free-tier quotas on paid APIs in minutes. In-memory Map scales per-instance; for multi-instance scale, swap for Redis.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">type system</div>
+          <h3>Hand-written TypeScript types</h3>
+          <div class="file-hint">src/lib/types.ts · 278 lines</div>
+          <div class="section-detail">
+            <p>One interface per API response shape. No code generation, no auto-schema. Written by hand so every optional field is a deliberate decision.</p>
+            <p>When an external API changes its shape, TypeScript breaks the consumer — a build error, not a production bug.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Strict mode + discriminated unions force exhaustive handling. The compiler catches missing cases before a user does.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="connection">
+      <div class="connection-content">
+        <div class="connection-label">dashboard ↔ backend</div>
+        <div class="connection-arrow">↓</div>
+        <div class="connection-detail">
+          Browser hits <code>/api/monitor/[...path]</code> on same origin<br>
+          Next.js proxy injects <code>X-API-Key</code> header server-side<br>
+          Forwards to Railway backend over HTTPS
+        </div>
+      </div>
+    </div>
+
+    <div class="platform" data-layer="backend">
+      <div class="platform-header">
+        <div class="platform-title">
+          <div class="layer-label">layer 02 · server</div>
+          <h2>Threat Intel <span>Platform</span></h2>
+        </div>
+        <div class="platform-stack">
+          Fastify 4 · TypeScript · Zod<br>
+          Drizzle ORM · PostgreSQL 16 · Redis 7<br>
+          BullMQ workers · Deployed: Railway
+        </div>
+      </div>
+      <div class="platform-body">
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">process topology</div>
+          <h3>Two processes, shared data</h3>
+          <div class="file-hint">src/index.ts + src/worker.ts</div>
+          <div class="section-detail">
+            <p>Split in two: a <strong>Fastify API</strong> answering HTTP, and a <strong>worker process</strong> running background jobs. They're separate Docker containers sharing one Postgres and one Redis.</p>
+            <p>The API must stay fast; the worker does slow, expensive things.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              If heavy background work lived inside the API, a slow CVE sync would block user requests. Separation lets each process scale independently.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">data model</div>
+          <h3>10 tables with lifecycle states</h3>
+          <div class="file-hint">src/db/schema/*</div>
+          <div class="section-detail">
+            <p>Users → assets → vulnerabilities (join table with status) → alerts. Plus <code>ioc_records</code> (TTL cache), <code>feed_syncs</code> (job history), <code>recon_sessions</code> (dashboard output).</p>
+            <p>Critical design choice: remediation status lives on the <strong>join table</strong>, not the vulnerability. The same CVE can be remediated on asset A and open on asset B.</p>
+            <ul>
+              <li>All foreign keys have explicit <code>ON DELETE</code> actions (CASCADE or SET NULL)</li>
+              <li>Lifecycle states are Postgres enums — DB rejects invalid values</li>
+              <li>Passwords: bcrypt. API keys & refresh tokens: SHA-256 hashed</li>
+            </ul>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Status is a relation between a finding and an asset, not a property of the finding. This is the canonical model for any "continuous monitoring" SaaS.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">enrichment pipeline</div>
+          <h3>Cache → DB → parallel fan-out</h3>
+          <div class="file-hint">src/services/ioc-enrichment.ts</div>
+          <div class="section-detail">
+            <p>When an indicator (IP, domain, hash) needs classification:</p>
+            <ul>
+              <li>Check Redis cache (instant hit → return)</li>
+              <li>On miss: <code>Promise.allSettled()</code> to AbuseIPDB + VirusTotal + OTX in parallel</li>
+              <li>Combine verdicts, compute single score, write back to Redis with TTL</li>
+            </ul>
+            <p>Cache hits and misses are Prometheus metrics — I can see the hit rate in Grafana.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              <code>allSettled</code> over <code>all</code>: one slow source can't take down the others. Three sources cover different data — AbuseIPDB = community reports, VT = AV engines, OTX = threat pulses.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">background workers</div>
+          <h3>3 BullMQ queues on a schedule</h3>
+          <div class="file-hint">src/workers/*</div>
+          <div class="section-detail">
+            <p>Three workers, three distinct jobs:</p>
+            <ul>
+              <li><strong>cve-feed</strong> — every 6h, pages through NIST NVD (2000+ pages), exponential backoff + jitter on rate limits</li>
+              <li><strong>ioc-scan</strong> — every 1h, re-enriches active assets, creates alerts on malicious verdicts</li>
+              <li><strong>asset-scan</strong> — on-demand when new asset registered, correlates against known CVEs</li>
+            </ul>
+            <p>Each run is tracked in <code>feed_syncs</code>: duration, records processed, errors.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              BullMQ over cron: persistence across restarts, automatic retries, admin UI. CVE sync mid-way restart = no data loss.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">api surface</div>
+          <h3>7 route groups · cursor pagination</h3>
+          <div class="file-hint">src/api/routes/*</div>
+          <div class="section-detail">
+            <p>auth · assets · alerts · vulnerabilities · ioc · recon-sessions · health</p>
+            <p>All list endpoints use cursor pagination — no offset drift when data changes during pagination. Zod validates every request body and query param.</p>
+            <p>Request IDs traced through logs: single dashboard request → Next.js proxy log → Fastify log → worker log → email log, all linked.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Offset pagination drifts on live data (same row appears twice, rows skipped). Cursor pagination is stable.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">observability</div>
+          <h3>Prometheus + Grafana</h3>
+          <div class="file-hint">src/lib/metrics.ts + grafana/</div>
+          <div class="section-detail">
+            <p>8-panel Grafana dashboard, pre-provisioned via Docker Compose:</p>
+            <ul>
+              <li>Request rate, error rate, p50/p95/p99 latency</li>
+              <li>Active assets gauge, IOC cache hit rate</li>
+              <li>Background job rate (completed vs failed by queue)</li>
+              <li>Open alerts by severity</li>
+            </ul>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              "It's slow" is useless. "p95 latency on /ioc is 2.4s" is actionable. Metrics pay for themselves the first time something breaks.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="connection">
+      <div class="connection-content">
+        <div class="connection-label">backend ↔ desktop</div>
+        <div class="connection-arrow">↓</div>
+        <div class="connection-detail">
+          Desktop reads <code>~/.cybersuite/config.json</code><br>
+          HTTPS request to <code>/api/v1/recon-sessions</code> with <code>X-API-Key</code><br>
+          10-second timeout, falls back to offline manual input
+        </div>
+      </div>
+    </div>
+
+    <div class="platform" data-layer="desktop">
+      <div class="platform-header">
+        <div class="platform-title">
+          <div class="layer-label">layer 03 · operator</div>
+          <h2>CyberSuite <span>Pro</span></h2>
+        </div>
+        <div class="platform-stack">
+          Python 3.11 · CustomTkinter<br>
+          Threading · ctypes · importlib<br>
+          Built as standalone .exe
+        </div>
+      </div>
+      <div class="platform-body">
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">application shell</div>
+          <h3>GUI launcher + 7 tool pages</h3>
+          <div class="file-hint">launcher/app.py + launcher/pages/*</div>
+          <div class="section-detail">
+            <p>Single-window GUI: sidebar nav, main content, output console. Each security tool gets its own page — NIDS, password audit, malware analysis, web testing, payload generation, exploit helper.</p>
+            <p>The Recon page is new and bridges to the backend — everything else is local-only.</p>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">execution model</div>
+          <h3>In-process threading, not subprocess</h3>
+          <div class="file-hint">launcher/utils/runner.py</div>
+          <div class="section-detail">
+            <p>Tools are loaded via <code>importlib.util.spec_from_file_location()</code> into the same Python interpreter. No child processes, no pipe juggling.</p>
+            <p>Each run lives in a daemon thread with try/except. Stop mechanism: set a cooperative flag, then inject <code>KeyboardInterrupt</code> via <code>ctypes.PyThreadState_SetAsyncExc</code> as fallback.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Subprocess is slower, harder to stop cleanly, and requires path juggling. In-process = faster + simpler. Daemon threads contain the blast radius of any crash.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">output capture</div>
+          <h3>Thread-aware stdout interceptor</h3>
+          <div class="file-hint">launcher/utils/writer.py</div>
+          <div class="section-detail">
+            <p>Tools <code>print()</code> freely — no source changes. A custom writer wraps <code>sys.stdout</code> using <code>threading.local()</code>. Each worker thread carries its own GUI callback; other threads fall through to the original stream.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Alternative was to patch every print() call in every tool. This is zero-touch — tools stay testable from the CLI, GUI gets its output too.
+            </div>
+          </div>
+        </div>
+
+        <div class="section-block" onclick="toggle(this)">
+          <div class="toggle">+</div>
+          <div class="section-label">backend bridge</div>
+          <h3>Recon Workspace (online + offline)</h3>
+          <div class="file-hint">launcher/pages/recon_page.py</div>
+          <div class="section-detail">
+            <p>Fetches saved recon sessions from the Railway backend. One click sets an active target → clipboard → paste into attack tool.</p>
+            <p>Config lives in <code>~/.cybersuite/config.json</code> — never in source. If backend unreachable, the Offline tab is always available — operator types targets manually, everything still works.</p>
+            <div class="why-block">
+              <strong>why this shape</strong>
+              Desktop tools run in the field where internet is unreliable. Graceful degradation is not optional. Online mode is the bonus, offline is the baseline.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <div class="story-section">
+    <h2>The full <em>recon-to-exploit</em> flow</h2>
+    <p>One sentence that explains why the three platforms exist together: an operator starts in the browser, saves findings to the shared database, and picks them up in the desktop tool to move from reconnaissance into active testing.</p>
+    <div class="story-flow">
+      <div class="story-step">
+        <div class="step-number">01</div>
+        <h4>Recon in browser</h4>
+        <p>Operator runs subdomain enumeration on <code>example.com</code> in the dashboard. 20 results.</p>
+      </div>
+      <div class="story-step">
+        <div class="step-number">02</div>
+        <h4>Save to workspace</h4>
+        <p>One click. Browser → Next.js proxy → Fastify writes to <code>recon_sessions</code>.</p>
+      </div>
+      <div class="story-step">
+        <div class="step-number">03</div>
+        <h4>Switch to desktop</h4>
+        <p>Operator opens CyberSuite Pro, goes to Recon page. App fetches sessions from backend.</p>
+      </div>
+      <div class="story-step">
+        <div class="step-number">04</div>
+        <h4>Set active target</h4>
+        <p>Click on the example.com session. Target copied to clipboard, ready to paste.</p>
+      </div>
+      <div class="story-step">
+        <div class="step-number">05</div>
+        <h4>Run attack tool</h4>
+        <p>Paste into Web App Tester. Pentest begins. Same target, no manual re-entry.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="decisions-section">
+    <h2>The <em>"why this stack"</em> answers</h2>
+    <p>Every technology choice is a trade-off. When asked "why X", the honest answer is usually "because the alternative had a specific problem I didn't want." Not hype-driven, not lock-in — deliberate.</p>
+    <div class="decisions-grid">
+
+      <div class="decision-card">
+        <div class="tag">Language</div>
+        <h4>TypeScript <span>over PHP / .NET</span></h4>
+        <p>Same language front-to-back means shared types between frontend and backend. Native async I/O fits the fan-out pattern. Same stack modern Belgian SaaS runs on.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">Framework</div>
+        <h4>Next.js <span>over plain React</span></h4>
+        <p>Server-side proxy for credential hiding is native — one file, not a second deployment. Edge middleware runs before function invocation. Push-to-deploy on Vercel.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">Backend</div>
+        <h4>Fastify <span>over Express</span></h4>
+        <p>JSON Schema validation built-in. First-class TypeScript types. ~2x faster. Express's types are community-maintained; Fastify's are part of the framework.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">Database</div>
+        <h4>Postgres <span>over Mongo</span></h4>
+        <p>The data is relational: assets → CVEs → alerts. Foreign keys with explicit delete cascades are the feature, not tax. Postgres enums reject invalid values at the DB layer.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">ORM</div>
+        <h4>Drizzle <span>over Prisma</span></h4>
+        <p>Query API reads like SQL, so complex queries don't fight the ORM. Migrations are plain .sql files — readable, editable. Smaller bundle, faster cold starts.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">Queue</div>
+        <h4>BullMQ <span>over node-cron</span></h4>
+        <p>Cron has no persistence, no retries, no observability. BullMQ is Redis-backed — jobs survive restarts, retry with backoff, have an admin UI. Right tool for production.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">Cache</div>
+        <h4>Redis <span>necessary, and useful</span></h4>
+        <p>BullMQ requires Redis — not optional. Once it's there, native TTL expiry for the IOC cache is free. Two databases is overhead, but worth it.</p>
+      </div>
+
+      <div class="decision-card">
+        <div class="tag">Hosting</div>
+        <h4>Railway + Vercel <span>push-to-deploy</span></h4>
+        <p>Railway gives two Docker targets (API + worker) sharing Postgres and Redis, one config. Vercel gives Next.js Edge features. Both deploy on git push.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="callout">
+    <h2>Same architecture as <em>continuous monitoring SaaS</em> products like Webclew — different domain.</h2>
+    <p style="color: var(--text-dim); margin-bottom: 16px; max-width: 680px;">Both systems do the same structural work: register a target, scan continuously in the background, classify what's found, alert on policy violations, track remediation through a lifecycle. The difference is the <em>classification layer</em> — not the plumbing around it.</p>
+    <div class="parallel-grid">
+      <div class="parallel-col">
+        <h5><strong>Identical structure</strong></h5>
+        <ul>
+          <li>Register target → async workers scan → findings stored with severity + lifecycle</li>
+          <li>External data sources feed the classifier in parallel with cache fallback</li>
+          <li>Alert generation with severity gating (not every finding becomes a notification)</li>
+          <li>Remediation lifecycle on the join table — same finding can be open on one target, resolved on another</li>
+          <li>Cursor pagination, enum-enforced states, explicit foreign key behavior</li>
+          <li>Server-side proxy hides backend credentials from the browser</li>
+        </ul>
+      </div>
+      <div class="parallel-col">
+        <h5><strong>What's different</strong></h5>
+        <ul>
+          <li>My classifier hits JSON APIs (NVD, VT, AbuseIPDB) — theirs runs headless browsers to observe real network traffic</li>
+          <li>My rules are security-focused (CVSS severity, threat feeds) — theirs are legally framed (GDPR, TCF, DPAs)</li>
+          <li>My alerts describe a match — theirs may become evidence in a regulator case, so the proof surface is heavier</li>
+          <li>My customer is a security operator — theirs is a Data Protection Officer</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>three platforms · one api · one database</div>
+    <div>built 2025–2026 · bo claes</div>
+  </div>
+
+</div>
+
+<button class="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<script>
+  function toggle(el) {
+    const isOpen = el.getAttribute('data-open') === 'true';
+    el.setAttribute('data-open', !isOpen);
+  }
+  const scrollBtn = document.querySelector('.scroll-top');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 400) scrollBtn.classList.add('visible');
+    else scrollBtn.classList.remove('visible');
+  });
+</script>
+
+</body>
+</html>
