@@ -17,6 +17,8 @@ import alertRoutes from './routes/alerts';
 import vulnerabilityRoutes from './routes/vulnerabilities';
 import iocRoutes from './routes/ioc';
 import reconSessionRoutes from './routes/recon-sessions';
+import eventRoutes from './routes/events';
+import incidentRoutes from './routes/incidents';
 
 export async function buildServer() {
   console.log('[server] buildServer() called');
@@ -110,6 +112,8 @@ export async function buildServer() {
   await fastify.register(vulnerabilityRoutes, { prefix });
   await fastify.register(iocRoutes, { prefix });
   await fastify.register(reconSessionRoutes, { prefix });
+  await fastify.register(eventRoutes, { prefix });
+  await fastify.register(incidentRoutes, { prefix });
 
   fastify.setNotFoundHandler((_, reply) => reply.status(404).send({ error: 'Not found' }));
   fastify.setErrorHandler((err, request, reply) => {
