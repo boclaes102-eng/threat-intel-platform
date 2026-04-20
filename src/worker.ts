@@ -6,6 +6,7 @@ import { cveFeedQueue, scheduleRecurringJobs } from './workers/queues';
 import { createCveFeedWorker } from './workers/cve-feed-worker';
 import { createIocScanWorker } from './workers/ioc-scan-worker';
 import { createAssetScanWorker } from './workers/asset-scan-worker';
+import { createEventCorrelationWorker } from './workers/event-correlation-worker';
 import { db } from './db';
 import { vulnerabilities } from './db/schema';
 
@@ -16,12 +17,13 @@ async function main() {
     createCveFeedWorker(),
     createIocScanWorker(),
     createAssetScanWorker(),
+    createEventCorrelationWorker(),
   ];
 
   logger.info(`Started ${workers.length} BullMQ workers`);
 
   await scheduleRecurringJobs();
-  logger.info('Recurring jobs scheduled (CVE feed: every 6h, IOC scan: every 1h)');
+  logger.info('Recurring jobs scheduled (CVE feed: every 6h, IOC scan: every 1h, correlation: every 60s)');
 
   // If the CVE database is thin (< 500 rows), do a 90-day bulk import
   // then re-scan all assets after 15 min so they correlate against the fresh data

@@ -8,9 +8,10 @@ const connection = new Redis(env.REDIS_URL, {
   lazyConnect: true,
 });
 
-export const cveFeedQueue = new Queue('cve-feed', { connection });
-export const iocScanQueue = new Queue('ioc-scan', { connection });
-export const assetScanQueue = new Queue('asset-scan', { connection });
+export const cveFeedQueue          = new Queue('cve-feed',          { connection });
+export const iocScanQueue          = new Queue('ioc-scan',          { connection });
+export const assetScanQueue        = new Queue('asset-scan',        { connection });
+export const eventCorrelationQueue = new Queue('event-correlation', { connection });
 
 export interface CveFeedJobData {
   daysBack?: number;
@@ -36,5 +37,10 @@ export async function scheduleRecurringJobs() {
   await iocScanQueue.add('scan-all-assets', {}, {
     repeat: { pattern: '0 * * * *' },
     jobId: 'ioc-scan-recurring',
+  });
+
+  await eventCorrelationQueue.add('correlate', {}, {
+    repeat: { every: 60_000 },
+    jobId: 'event-correlation-recurring',
   });
 }
