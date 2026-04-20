@@ -13,3 +13,6 @@ export const reconToolEnum = pgEnum('recon_tool', [
   'dns', 'reverseip', 'asn', 'whoishistory', 'certs', 'traceroute',
   'url', 'email', 'ioc', 'shodan', 'tech', 'waf', 'cors',
 ]);
+
+export const eventCategoryEnum = pgEnum('event_category', ['auth', 'network', 'threat', 'system', 'recon']);
+export const incidentStatusEnum = pgEnum('incident_status', ['open', 'investigating', 'resolved']);
