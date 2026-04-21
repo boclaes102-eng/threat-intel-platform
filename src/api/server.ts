@@ -20,6 +20,7 @@ import reconSessionRoutes from './routes/recon-sessions';
 import eventRoutes from './routes/events';
 import incidentRoutes from './routes/incidents';
 import webhookRoutes from './routes/webhook';
+import debugRoutes from './routes/debug';
 
 export async function buildServer() {
   console.log('[server] buildServer() called');
@@ -115,6 +116,7 @@ export async function buildServer() {
   await fastify.register(reconSessionRoutes, { prefix });
   await fastify.register(eventRoutes, { prefix });
   await fastify.register(incidentRoutes, { prefix });
+  await fastify.register(debugRoutes,    { prefix });
   await fastify.register(webhookRoutes);
 
   fastify.setNotFoundHandler((_, reply) => reply.status(404).send({ error: 'Not found' }));
