@@ -74,6 +74,23 @@ The CVE feed worker pages through the full NIST NVD API (100 CVEs per page, ~2,0
 ### Asset-to-CVE correlation
 When a new asset is registered, the asset-scan worker runs a CPE string similarity check against all known CVE `affectedProducts` entries. Matches create entries in the `asset_vulnerabilities` join table and generate alerts for `critical` and `high` severity CVEs. No external call — purely database-side correlation.
 
+### SIEM event ingestion and correlation
+The platform acts as the central SIEM backend for the full ecosystem. External sources (currently `thedeepspaceproject.be`) POST events to `/webhook/site-events` authenticated by `X-Webhook-Secret`. Events are stored in `log_events` with a nullable `userId` so anonymous browser-sourced events are fully supported.
+
+A BullMQ correlation worker runs every 60 seconds and evaluates 7 detection rules across all active user contexts (including the `null` context for external sources):
+
+| Rule | Logic | Severity |
+|---|---|---|
+| Brute Force | 5+ `login_failed` in 10 min | HIGH |
+| XSS Attempt | Any `xss_attempt` in 10 min | HIGH |
+| SQLi Attempt | Any `sqli_attempt` in 10 min | HIGH |
+| Prototype Pollution | Any `prototype_pollution` in 10 min | HIGH |
+| IOC Spike | 3+ `ioc_match` in 10 min | HIGH |
+| Port Scan | 10+ distinct target ports from same IP in 5 min | MEDIUM |
+| Credential Stuffing | 10+ `login_failed` across 3+ target IPs in 5 min | CRITICAL |
+
+Incidents use an upsert pattern — if an open/investigating incident for the same rule exists within 2× the detection window, the event count is incremented rather than creating a duplicate.
+
 ### Recon session store (new — added for desktop integration)
 The `recon_sessions` table stores the full JSON output of any dashboard tool run (IP lookup, subdomain enumeration, SSL inspection, etc.) alongside a lightweight `summary` object for quick display. The CyberSuite Pro desktop app reads these sessions via the same API key and lets the operator load any target into the attack toolchain with one click.
 
@@ -191,6 +208,19 @@ Full interactive spec at **`/docs`**.
 | `GET` | `/api/v1/ioc/:indicator` | Enrich IP, domain, or hash — Redis → DB → live APIs |
 | `GET` | `/api/v1/ioc` | List cached IOC records — filter by `verdict` |
 
+### SIEM Events
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/events` | List all events — filter by `category`, `severity`, `source`, `since` (1h/6h/24h/7d). Global view across all users and sources. |
+| `POST` | `/api/v1/events` | Ingest an event (authenticated) |
+| `POST` | `/webhook/site-events` | Unauthenticated webhook for external sources — requires `X-Webhook-Secret` header |
+
+### SIEM Incidents
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/incidents` | List all incidents — filter by `status`, `severity`. Global view. |
+| `PATCH` | `/api/v1/incidents/:id` | Update status (`open` → `investigating` → `resolved`) |
+
 ### Pagination
 
 All list endpoints use cursor-based pagination — no offset drift on live data:
@@ -209,6 +239,7 @@ GET /api/v1/recon-sessions?limit=20&cursor=2025-04-18T10:00:00.000Z&tool=ip
 | `cve-feed` | Every 6 hours | Pages NVD API, upserts CVEs into `vulnerabilities`, records run in `feed_syncs`. Retries with exponential backoff + jitter on rate limits. |
 | `ioc-scan` | Every 1 hour | Enriches all active IP/domain assets via AbuseIPDB + VirusTotal + OTX in parallel. Creates `ioc_match` alerts on malicious verdicts. Emails if SMTP configured. |
 | `asset-scan` | On asset creation | CPE string correlation against known CVEs. Links matches in `asset_vulnerabilities`. Creates alerts for critical/high CVEs. |
+| `event-correlation` | Every 60 seconds | Evaluates 7 detection rules across all event contexts (including external sources with null userId). Creates and deduplicates incidents in the `incidents` table. |
 
 ---
 
