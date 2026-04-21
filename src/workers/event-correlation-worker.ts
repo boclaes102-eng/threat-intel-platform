@@ -18,8 +18,9 @@ async function upsertIncident(
   title: string,
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info',
   windowSeconds: number,
-  firstSeen: Date,
+  firstSeen: Date | string,
 ) {
+  const firstSeenDate = firstSeen instanceof Date ? firstSeen : new Date(firstSeen);
   // Find an open/investigating incident for this rule that is still within 2x the window
   const userCondition = userId ? eq(incidents.userId, userId) : isNull(incidents.userId);
   const existing = await db.query.incidents.findFirst({
@@ -35,8 +36,8 @@ async function upsertIncident(
       .update(incidents)
       .set({
         eventCount: existing.eventCount + 1,
-        lastSeenAt: new Date(),
-        updatedAt:  new Date(),
+        lastSeenAt:  new Date(),
+        updatedAt:   new Date(),
       })
       .where(eq(incidents.id, existing.id));
 
@@ -44,7 +45,7 @@ async function upsertIncident(
   } else {
     const [created] = await db
       .insert(incidents)
-      .values({ userId, title, severity, ruleName, eventCount: 1, firstSeenAt: firstSeen, lastSeenAt: new Date() })
+      .values({ userId, title, severity, ruleName, eventCount: 1, firstSeenAt: firstSeenDate, lastSeenAt: new Date() })
       .returning({ id: incidents.id });
 
     logger.warn({ incidentId: created.id, ruleName, title }, 'Incident created');
