@@ -57,8 +57,11 @@ function userFilter(userId: string | null) {
   return userId ? eq(logEvents.userId, userId) : isNull(logEvents.userId);
 }
 
-// Rule 1: Brute Force — 5+ login_failed in 2 min (groups by sourceIp; null IPs treated as one group)
+// Rule 1: Brute Force — 5+ login_failed in 10 min
+// Wide window ensures the 60s worker tick never misses a real attack.
 async function evalBruteForce(userId: string | null) {
+  const WINDOW = 600; // 10 minutes
+
   // Branch A: known source IPs — group per IP
   const ipRows = await db
     .select({
@@ -70,7 +73,7 @@ async function evalBruteForce(userId: string | null) {
     .where(and(
       userFilter(userId),
       eq(logEvents.action, 'login_failed'),
-      gte(logEvents.createdAt, windowStart(120)),
+      gte(logEvents.createdAt, windowStart(WINDOW)),
       isNotNull(logEvents.sourceIp),
     ))
     .groupBy(logEvents.sourceIp)
@@ -80,14 +83,14 @@ async function evalBruteForce(userId: string | null) {
     await upsertIncident(
       userId,
       `brute_force:${row.sourceIp}`,
-      `Brute force detected from ${row.sourceIp} (${row.count} attempts)`,
+      `Brute force detected from ${row.sourceIp} (${row.count} attempts in 10 min)`,
       'high',
-      120,
+      WINDOW,
       row.firstSeen,
     );
   }
 
-  // Branch B: unknown source IPs (browser-based events) — aggregate all nulls
+  // Branch B: browser-based events with no source IP — aggregate all nulls
   const [nullRow] = await db
     .select({
       count:     sql<number>`count(*)::int`,
@@ -97,7 +100,7 @@ async function evalBruteForce(userId: string | null) {
     .where(and(
       userFilter(userId),
       eq(logEvents.action, 'login_failed'),
-      gte(logEvents.createdAt, windowStart(120)),
+      gte(logEvents.createdAt, windowStart(WINDOW)),
       isNull(logEvents.sourceIp),
     ));
 
@@ -105,9 +108,9 @@ async function evalBruteForce(userId: string | null) {
     await upsertIncident(
       userId,
       'brute_force:unknown',
-      `Brute force detected from unknown source (${nullRow.count} attempts)`,
+      `Brute force detected (${nullRow.count} failed logins in 10 min)`,
       'high',
-      120,
+      WINDOW,
       nullRow.firstSeen,
     );
   }
