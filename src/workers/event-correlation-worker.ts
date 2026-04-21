@@ -201,6 +201,84 @@ async function evalCredentialStuffing(userId: string | null) {
   }
 }
 
+// Rule 5: XSS Attempt — any xss_attempt event within 10 min
+async function evalXssAttempt(userId: string | null) {
+  const [row] = await db
+    .select({
+      count:     sql<number>`count(*)::int`,
+      firstSeen: sql<Date>`min(${logEvents.createdAt})`,
+    })
+    .from(logEvents)
+    .where(and(
+      userFilter(userId),
+      eq(logEvents.action, 'xss_attempt'),
+      gte(logEvents.createdAt, windowStart(600)),
+    ));
+
+  if (row && row.count >= 1) {
+    await upsertIncident(
+      userId,
+      'xss_attempt',
+      `XSS injection attempt detected (${row.count} event${row.count > 1 ? 's' : ''})`,
+      'high',
+      600,
+      row.firstSeen,
+    );
+  }
+}
+
+// Rule 6: SQL Injection Attempt — any sqli_attempt event within 10 min
+async function evalSqliAttempt(userId: string | null) {
+  const [row] = await db
+    .select({
+      count:     sql<number>`count(*)::int`,
+      firstSeen: sql<Date>`min(${logEvents.createdAt})`,
+    })
+    .from(logEvents)
+    .where(and(
+      userFilter(userId),
+      eq(logEvents.action, 'sqli_attempt'),
+      gte(logEvents.createdAt, windowStart(600)),
+    ));
+
+  if (row && row.count >= 1) {
+    await upsertIncident(
+      userId,
+      'sqli_attempt',
+      `SQL injection attempt detected (${row.count} event${row.count > 1 ? 's' : ''})`,
+      'high',
+      600,
+      row.firstSeen,
+    );
+  }
+}
+
+// Rule 7: Prototype Pollution — any prototype_pollution event within 10 min
+async function evalPrototypePollution(userId: string | null) {
+  const [row] = await db
+    .select({
+      count:     sql<number>`count(*)::int`,
+      firstSeen: sql<Date>`min(${logEvents.createdAt})`,
+    })
+    .from(logEvents)
+    .where(and(
+      userFilter(userId),
+      eq(logEvents.action, 'prototype_pollution'),
+      gte(logEvents.createdAt, windowStart(600)),
+    ));
+
+  if (row && row.count >= 1) {
+    await upsertIncident(
+      userId,
+      'prototype_pollution',
+      `Prototype pollution attempt detected (${row.count} event${row.count > 1 ? 's' : ''})`,
+      'high',
+      600,
+      row.firstSeen,
+    );
+  }
+}
+
 // ── Worker ─────────────────────────────────────────────────────────────────
 
 export function createEventCorrelationWorker() {
@@ -222,6 +300,9 @@ export function createEventCorrelationWorker() {
           await evalPortScan(userId);
           await evalIocSpike(userId);
           await evalCredentialStuffing(userId);
+          await evalXssAttempt(userId);
+          await evalSqliAttempt(userId);
+          await evalPrototypePollution(userId);
         }
 
         logger.info({ contexts: userRows.length }, 'Correlation run complete');
