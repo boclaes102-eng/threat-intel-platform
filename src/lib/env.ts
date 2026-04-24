@@ -33,8 +33,9 @@ const schema = z.object({
   SMTP_USER:     z.string().optional(),
   SMTP_PASS:     z.string().optional(),
   SMTP_FROM:     z.string().default('alerts@threat-intel.local'),
-  ALERT_EMAIL:   z.string().email().optional(),
-  DASHBOARD_URL: z.string().default('https://online-cyber-dashboard.vercel.app'),
+  ALERT_EMAIL:    z.string().email().optional(),
+  DASHBOARD_URL:  z.string().default('https://online-cyber-dashboard.vercel.app'),
+  RESEND_API_KEY: z.string().optional(),
 });
 
 const result = schema.safeParse(process.env);
