@@ -28,11 +28,13 @@ const schema = z.object({
   OTX_API_KEY: z.string().optional(),
 
   // Email alerts (all optional — notifications are skipped if not configured)
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().default(587),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().default('alerts@threat-intel.local'),
+  SMTP_HOST:     z.string().optional(),
+  SMTP_PORT:     z.coerce.number().default(587),
+  SMTP_USER:     z.string().optional(),
+  SMTP_PASS:     z.string().optional(),
+  SMTP_FROM:     z.string().default('alerts@threat-intel.local'),
+  ALERT_EMAIL:   z.string().email().optional(),
+  DASHBOARD_URL: z.string().default('https://online-cyber-dashboard.vercel.app'),
 });
 
 const result = schema.safeParse(process.env);

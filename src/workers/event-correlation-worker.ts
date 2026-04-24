@@ -5,6 +5,7 @@ import { logEvents, incidents } from '../db/schema';
 import { jobsTotal, jobDuration } from '../lib/metrics';
 import { logger } from '../lib/logger';
 import { env } from '../lib/env';
+import { sendIncidentAlert } from '../lib/mailer';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,10 @@ async function upsertIncident(
       .returning({ id: incidents.id });
 
     logger.warn({ incidentId: created.id, ruleName, title }, 'Incident created');
+
+    if (severity === 'high' || severity === 'critical') {
+      await sendIncidentAlert({ title, severity, ruleName, firstSeen: firstSeenDate });
+    }
   }
 }
 
