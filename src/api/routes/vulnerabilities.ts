@@ -61,14 +61,14 @@ export default async function vulnerabilityRoutes(fastify: FastifyInstance) {
       return { data, nextCursor: hasNext ? data[data.length - 1].discoveredAt.toISOString() : null };
     }
 
-    // User-scoped CVE list — only CVEs linked to this user's assets
-    const vulnConditions = [eq(assets.userId, userId)];
+    // Global CVE list — all vulnerabilities in the database, filterable
+    const vulnConditions = [];
     if (cursor)   vulnConditions.push(lt(vulnerabilities.publishedAt, new Date(cursor)));
     if (severity) vulnConditions.push(eq(vulnerabilities.severity, severity));
     if (search)   vulnConditions.push(ilike(vulnerabilities.cveId, `%${search}%`));
 
     const rows = await db
-      .selectDistinct({
+      .select({
         id:               vulnerabilities.id,
         cveId:            vulnerabilities.cveId,
         title:            vulnerabilities.title,
@@ -81,9 +81,7 @@ export default async function vulnerabilityRoutes(fastify: FastifyInstance) {
         createdAt:        vulnerabilities.createdAt,
       })
       .from(vulnerabilities)
-      .innerJoin(assetVulnerabilities, eq(assetVulnerabilities.vulnerabilityId, vulnerabilities.id))
-      .innerJoin(assets, and(eq(assets.id, assetVulnerabilities.assetId), eq(assets.userId, userId)))
-      .where(and(...vulnConditions))
+      .where(vulnConditions.length > 0 ? and(...vulnConditions) : undefined)
       .orderBy(desc(vulnerabilities.publishedAt))
       .limit(limit + 1);
 
